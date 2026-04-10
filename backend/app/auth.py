@@ -21,6 +21,14 @@ def _new_otp_code() -> str:
     return "".join(secrets.choice(string.digits) for _ in range(6))
 
 
+def _issue_session_for_user(db: Session, user: User) -> SessionToken:
+    token = secrets.token_urlsafe(32)
+    expires_at = utcnow() + timedelta(seconds=settings.session_ttl_seconds)
+    sess = SessionToken(token=token, user_id=user.id, expires_at=expires_at)
+    db.add(sess)
+    return sess
+
+
 def request_otp(db: Session, email: str) -> None:
     email = email.strip().lower()
     if not email.endswith(settings.login_email_domain):
@@ -60,12 +68,31 @@ def verify_otp(db: Session, email: str, code: str) -> SessionToken:
         db.add(user)
         db.flush()
 
-    token = secrets.token_urlsafe(32)
-    expires_at = utcnow() + timedelta(seconds=settings.session_ttl_seconds)
-    sess = SessionToken(token=token, user_id=user.id, expires_at=expires_at)
-    db.add(sess)
+    sess = _issue_session_for_user(db, user)
 
     _log(db, actor=email, action="auth.login", entity="user", entity_id=str(user.id), detail="OTP ile giris.")
+    return sess
+
+
+def bootstrap_login(db: Session, secret: str) -> SessionToken:
+    expected_secret = settings.bootstrap_login_secret.strip()
+    bootstrap_email = settings.bootstrap_login_email.strip().lower()
+
+    if not expected_secret or not bootstrap_email:
+        raise HTTPException(status_code=404, detail="Gecici giris devre disi.")
+    if secret.strip() != expected_secret:
+        raise HTTPException(status_code=401, detail="Gecersiz gecici giris anahtari.")
+
+    user = db.scalar(select(User).where(User.email == bootstrap_email))
+    if not user:
+        user = User(email=bootstrap_email, role=UserRole.admin, is_active=True)
+        db.add(user)
+        db.flush()
+    elif user.role != UserRole.admin:
+        user.role = UserRole.admin
+
+    sess = _issue_session_for_user(db, user)
+    _log(db, actor=bootstrap_email, action="auth.bootstrap_login", entity="user", entity_id=str(user.id), detail="Gecici erisim baglantisi ile giris.")
     return sess
 
 
