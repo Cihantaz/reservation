@@ -1,0 +1,127 @@
+SINIF & SINAV REZERVASYON SISTEMI - KULLANIM KILAVUZU (DEMO)
+==========================================================
+
+1) CALISTIRMA
+-------------
+
+Backend:
+  cd backend
+  .venv\Scripts\activate
+  pip install -r requirements.txt
+  uvicorn app.main:app --reload --port 8000
+
+Frontend:
+  cd frontend
+  npm install
+  npm run dev
+
+Not:
+  Frontend portu doluysa Vite otomatik 5174/5175’e gecirir.
+
+
+2) GIRIS (OTP)
+--------------
+
+Kullanicilar sadece @isikun.edu.tr uzantili e-posta ile giris yapabilir.
+OTP, GELISTIRME ortaminda e-posta ile gonderilmez; backend terminaline yazdirilir:
+  [OTP] ad.soyad@isikun.edu.tr için doğrulama kodu: 123456
+
+Admin:
+  Admin hesabi sabit: cihan.tazeoz@isikun.edu.tr
+
+
+3) EXCEL FORMATLARI (KRITIK)
+----------------------------
+
+3.1) Derslik Listesi (derslik_list.xlsx)
+  Sayfa: Sayfa2
+  Kolonlar:
+    - Bina
+    - Derslik
+    - Özellik
+    - Kapasite
+
+  Is kurallari:
+    - Oda kodu (room_code) otomatik uretilir: Bina + '-' + Derslik
+        Ornek: DMF + 114 -> DMF-114
+    - Sinav Kapasitesi otomatik hesaplanir: floor(Kapasite / 2)
+    - UPSERT: room_code varsa GUNCELLE, yoksa EKLE
+
+  Admin panel:
+    Admin Paneli -> Siniflar -> "Siniflari Excel ile Toplu Ice Aktar"
+
+
+3.2) Ders Programi (sinif_list.xlsx)
+  Sayfa: Sheet1
+  Kolonlar:
+    - E-Posta
+    - Ders Kodu
+    - Sınıf(lar)
+    - Ders Saati
+
+  Parse kurallari:
+    - Sınıf(lar) ve Ders Saati virgulle ayrilmis ise ZIP mantigi uygulanir:
+        A203, A203, A203  +  T4, T5, T6  -> (A203,T4) (A203,T5) (A203,T6)
+    - "A413 A317" gibi hucre icinde birden fazla sinif varsa, ayni saat icin AYRI kayit uretilir.
+    - Oda kodlari normalize edilir:
+        A203 -> A-203
+        B162 -> B-162
+        DMF114 -> DMF-114
+    - Ders Saati token’lari:
+        M1..M12, T1..T12, W1..W12, Th1..Th12, F1..F12
+
+  Admin panel:
+    Admin Paneli -> Ders Programi -> "Ders Programi Yukle (Excel)"
+
+
+4) MATRIX (SINIF MATRISI)
+-------------------------
+
+- Matris her zaman veritabanindaki siniflari gosterir.
+- Durumlar:
+    Yesil  : Uygun
+    Sari   : Kilitli (3 dk TTL)
+    Kirmizi: Dolu (Rezervasyon) veya Temel Ders Programi (BaseSchedule)
+
+Filtreler:
+  - Bina filtresi (client-side)
+  - Durum filtresi:
+      * Tümü
+      * Sadece Boslar  : herhangi bir slotunda booked/locked olan odalar gizlenir
+      * Sadece Dolular : en az bir slotu booked/locked olan odalar gosterilir
+
+Coklu secim:
+  - Yesil hucrelere tiklayarak birden fazla hucre secilebilir.
+  - "Kilitle" secilen hucrelerin TAMAMINI tek istekte 3 dk kilitler.
+
+
+5) HAFTALIK ISI HARITASI
+------------------------
+
+- Varsayilan otomatik tarih yoktur.
+- Bir "Baslangic Tarihi" secip Yenile’ye basinca veri gelir.
+- Slotlar ve saatler DB’deki slotlara gore cizilir (1..12).
+
+
+6) ADMIN: GLOBAL REZERVASYONLAR + AUDIT LOGLARI
+------------------------------------------------
+
+Admin Paneli:
+  - Global Rezervasyonlar: tum kullanicilarin rezervasyonlari (filtre + sayfalama)
+  - Audit Loglari: sistem islemleri (filtre + sayfalama)
+
+
+7) SIK KARSILASILAN SORUNLAR
+----------------------------
+
+- Excel yuklenmiyor:
+    * Dosya uzantisi .xlsx olmali
+    * Kolon adlari yukaridaki formatla uyusmali
+
+- OTP mail gelmiyor:
+    * Bu demo ortaminda OTP e-posta ile gonderilmez, backend terminaline yazdirilir.
+
+- Port 5173/8000 dolu:
+    * Vite 5174’e gecer
+    * Backend icin 8000’i kullanan sureci kapatin veya baska port secin
+
