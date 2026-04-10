@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     resend_from_local_part: str = "oidbotomasyon.reservation"
     resend_from_name: str = "OIDB Reservation"
     resend_reply_to: str = ""
+    bootstrap_login_email: str = ""
+    bootstrap_login_secret: str = ""
 
     @property
     def cors_origins(self) -> list[str]:
