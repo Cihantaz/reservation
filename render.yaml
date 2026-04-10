@@ -1,0 +1,52 @@
+services:
+  - type: web
+    runtime: python
+    name: oidb-reservation-api
+    rootDir: backend
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: RESERVATION_DATABASE_URL
+        fromDatabase:
+          name: oidb-reservation-db
+          property: connectionString
+      - key: RESERVATION_ALLOW_ORIGINS
+        sync: false
+      - key: RESERVATION_ENABLE_DEV_TOKEN
+        value: "false"
+      - key: RESERVATION_LOGIN_EMAIL_DOMAIN
+        value: "@isikun.edu.tr"
+      - key: RESERVATION_RESEND_API_KEY
+        sync: false
+      - key: RESERVATION_RESEND_DOMAIN
+        value: oidb.reservation
+      - key: RESERVATION_RESEND_FROM_LOCAL_PART
+        value: oidbotomasyon.reservation
+      - key: RESERVATION_RESEND_FROM_NAME
+        value: OIDB Reservation
+      - key: RESERVATION_RESEND_REPLY_TO
+        value: ""
+
+  - type: web
+    runtime: static
+    name: oidb-reservation-web
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE
+        sync: false
+      - key: VITE_ENABLE_DEV_BYPASS
+        value: "false"
+      - key: VITE_SHOW_DEV_OTP_HINT
+        value: "false"
+
+databases:
+  - name: oidb-reservation-db
+    region: frankfurt
+    plan: free
+    databaseName: reservation
+    user: reservation_user
