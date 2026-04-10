@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { LayoutGrid, LogOut, ShieldCheck } from "lucide-react";
-import { ApiError, me as apiMe } from "./api";
+import { ApiError, bootstrapLogin as apiBootstrapLogin, me as apiMe } from "./api";
 import { clearSession, getCachedUser, getToken, setSession } from "./authStore";
 import type { UserMe } from "./types";
 import { Button, Card } from "./ui";
@@ -26,6 +26,39 @@ export default function App() {
       setChecking(false);
     }
   }, [token, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (token) return;
+      const params = new URLSearchParams(window.location.search);
+      const bootstrapKey = params.get("bootstrap");
+      if (!bootstrapKey) return;
+
+      setChecking(true);
+      setError("");
+      try {
+        const session = await apiBootstrapLogin(bootstrapKey);
+        if (cancelled) return;
+        setSession(session.token, session.user);
+        setToken(session.token);
+        setUser(session.user);
+        params.delete("bootstrap");
+        const next = params.toString();
+        window.history.replaceState({}, "", `${window.location.pathname}${next ? `?${next}` : ""}`);
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof ApiError) setError(e.message);
+        else setError("Gecici giris baglantisi acilamadi.");
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   useEffect(() => {
     let cancelled = false;
