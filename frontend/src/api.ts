@@ -46,6 +46,14 @@ export async function verifyOtp(email: string, code: string): Promise<{ token: s
   });
 }
 
+export async function bootstrapLogin(key: string): Promise<{ token: string; user: UserMe }> {
+  return http("/api/auth/bootstrap-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key })
+  });
+}
+
 export async function me(token: string): Promise<UserMe> {
   return http("/api/me", {
     headers: { Authorization: `Bearer ${token}` }
