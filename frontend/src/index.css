@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* küçük, modern dokunuş */
+::selection {
+  background: rgba(56, 189, 248, 0.35);
+}
+
