@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from . import services
-from .auth import bootstrap_login, get_current_user, request_otp, require_admin, test_login, verify_otp
+from .auth import auto_login, bootstrap_login, get_current_user, request_otp, require_admin, test_login, verify_otp
 from .db import Base, engine, get_db
 from .models import AuditLog, BaseSchedule, Course, Reservation, Room, Slot, User
 from .schedule_import import parse_rooms_excel, parse_schedule_excel, parse_schedule_csv
@@ -233,6 +233,14 @@ def auth_test_login(payload: dict, db: Session = Depends(get_db)):
     email = payload.get("email", "")
     password = payload.get("password", "")
     sess = test_login(db, email=email, password=password)
+    user = db.get(User, sess.user_id)
+    db.commit()
+    return {"token": sess.token, "user": {"email": user.email, "role": user.role}}
+
+
+@app.post("/api/auth/auto-login", response_model=SessionOut)
+def auth_auto_login(db: Session = Depends(get_db)):
+    sess = auto_login(db)
     user = db.get(User, sess.user_id)
     db.commit()
     return {"token": sess.token, "user": {"email": user.email, "role": user.role}}
