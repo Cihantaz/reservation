@@ -16,21 +16,24 @@ export default function App() {
   const [user, setUser] = useState<UserMe | null>(() => getCachedUser());
   const [checking, setChecking] = useState<boolean>(!!token);
   const [error, setError] = useState<string>("");
+  const devUser: UserMe = { email: "cihan.tazeoz@isikun.edu.tr", role: "admin" };
 
-  // Dev mode: Token bulunamadıysa test token'ı kullan (bypass OTP)
   useEffect(() => {
-    if (DEV_BYPASS_ENABLED && !token && !user && !getCachedUser()) {
-      const devUser: UserMe = { email: "cihan.tazeoz@isikun.edu.tr", role: "admin" };
+    if (DEV_BYPASS_ENABLED) {
       setSession(DEV_TOKEN, devUser);
       setToken(DEV_TOKEN);
       setUser(devUser);
       setChecking(false);
     }
-  }, [token, user]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
+      if (DEV_BYPASS_ENABLED && token === DEV_TOKEN) {
+        setChecking(false);
+        return;
+      }
       if (token) return;
       if (AUTO_LOGIN_ENABLED) {
         setChecking(true);
@@ -51,7 +54,6 @@ export default function App() {
         return;
       }
 
-      if (token) return;
       const params = new URLSearchParams(window.location.search);
       const bootstrapKey = params.get("bootstrap");
       if (!bootstrapKey) return;
@@ -88,17 +90,17 @@ export default function App() {
         setChecking(false);
         return;
       }
+      if (DEV_BYPASS_ENABLED && token === DEV_TOKEN) {
+        setUser(devUser);
+        setChecking(false);
+        return;
+      }
       try {
         const u = await apiMe(token);
         if (cancelled) return;
         setUser(u);
       } catch (e) {
         if (cancelled) return;
-        // Dev token case: /me fail olsa bile user'ı sakla (OTP bypass)
-        if (DEV_BYPASS_ENABLED && token === DEV_TOKEN) {
-          console.log("[DEV] Token geçerli, /me fail ancak token saklanıyor");
-          return;
-        }
         if (e instanceof ApiError) setError(e.message);
         clearSession();
         setToken(null);
@@ -122,8 +124,8 @@ export default function App() {
               <LayoutGrid className="h-5 w-5" />
             </div>
             <div className="leading-tight">
-              <div className="text-sm font-semibold text-white">Sınıf & Sınav Rezervasyon Sistemi</div>
-              <div className="text-xs text-white/55">Işık Üniversitesi (Demo)</div>
+              <div className="text-sm font-semibold text-white">Sinif & Sinav Rezervasyon Sistemi</div>
+              <div className="text-xs text-white/55">Isik Universitesi (Demo)</div>
             </div>
           </div>
 
@@ -133,17 +135,19 @@ export default function App() {
                 {user.role === "admin" ? <ShieldCheck className="h-4 w-4 text-emerald-300" /> : null}
                 <span className="truncate">{user.email}</span>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  clearSession();
-                  setToken(null);
-                  setUser(null);
-                }}
-              >
-                <LogOut className="h-4 w-4" />
-                Çıkış
-              </Button>
+              {DEV_BYPASS_ENABLED ? null : (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    clearSession();
+                    setToken(null);
+                    setUser(null);
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Cikis
+                </Button>
+              )}
             </div>
           ) : null}
         </div>
@@ -157,7 +161,7 @@ export default function App() {
       <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
         {checking ? (
           <Card className="p-8">
-            <div className="text-sm text-white/70">Oturum kontrol ediliyor…</div>
+            <div className="text-sm text-white/70">Oturum kontrol ediliyor...</div>
           </Card>
         ) : token && user ? (
           <Dashboard token={token} user={user} />
@@ -175,10 +179,11 @@ export default function App() {
         )}
 
         {error ? (
-          <div className="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</div>
+          <div className="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            {error}
+          </div>
         ) : null}
       </div>
     </div>
   );
 }
-
