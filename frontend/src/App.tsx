@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { LayoutGrid, LogOut, ShieldCheck } from "lucide-react";
-import { ApiError, bootstrapLogin as apiBootstrapLogin, me as apiMe } from "./api";
+import { ApiError, autoLogin as apiAutoLogin, bootstrapLogin as apiBootstrapLogin, me as apiMe } from "./api";
 import { clearSession, getCachedUser, getToken, setSession } from "./authStore";
 import type { UserMe } from "./types";
 import { Button, Card } from "./ui";
@@ -9,6 +9,7 @@ import Dashboard from "./components/Dashboard";
 
 const DEV_TOKEN = "test-dev-token-123456789";
 const DEV_BYPASS_ENABLED = (import.meta as any).env?.VITE_ENABLE_DEV_BYPASS === "true";
+const AUTO_LOGIN_ENABLED = (import.meta as any).env?.VITE_ENABLE_AUTO_LOGIN === "true";
 
 export default function App() {
   const [token, setToken] = useState<string | null>(() => getToken());
@@ -30,6 +31,26 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     async function run() {
+      if (token) return;
+      if (AUTO_LOGIN_ENABLED) {
+        setChecking(true);
+        setError("");
+        try {
+          const session = await apiAutoLogin();
+          if (cancelled) return;
+          setSession(session.token, session.user);
+          setToken(session.token);
+          setUser(session.user);
+        } catch (e) {
+          if (cancelled) return;
+          if (e instanceof ApiError) setError(e.message);
+          else setError("Otomatik giris acilamadi.");
+        } finally {
+          if (!cancelled) setChecking(false);
+        }
+        return;
+      }
+
       if (token) return;
       const params = new URLSearchParams(window.location.search);
       const bootstrapKey = params.get("bootstrap");
@@ -140,6 +161,10 @@ export default function App() {
           </Card>
         ) : token && user ? (
           <Dashboard token={token} user={user} />
+        ) : AUTO_LOGIN_ENABLED ? (
+          <Card className="p-8">
+            <div className="text-sm text-white/70">Otomatik giris basarisiz.</div>
+          </Card>
         ) : (
           <Login
             onLogin={(tok, u) => {
