@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     bootstrap_login_secret: str = ""
     test_login_email: str = ""
     test_login_password: str = ""
+    auto_login_email: str = ""
 
     @property
     def cors_origins(self) -> list[str]:
