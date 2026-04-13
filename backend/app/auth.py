@@ -120,6 +120,24 @@ def test_login(db: Session, email: str, password: str) -> SessionToken:
     return sess
 
 
+def auto_login(db: Session) -> SessionToken:
+    auto_email = settings.auto_login_email.strip().lower()
+    if not auto_email:
+        raise HTTPException(status_code=404, detail="Otomatik giris devre disi.")
+
+    user = db.scalar(select(User).where(User.email == auto_email))
+    if not user:
+        user = User(email=auto_email, role=UserRole.admin, is_active=True)
+        db.add(user)
+        db.flush()
+    elif user.role != UserRole.admin:
+        user.role = UserRole.admin
+
+    sess = _issue_session_for_user(db, user)
+    _log(db, actor=auto_email, action="auth.auto_login", entity="user", entity_id=str(user.id), detail="Gecici otomatik giris ile oturum acildi.")
+    return sess
+
+
 def logout(db: Session, token: str, actor_email: str) -> None:
     db.execute(delete(SessionToken).where(SessionToken.token == token))
     _log(db, actor=actor_email, action="auth.logout", detail="Oturum kapatildi.")
