@@ -6,7 +6,9 @@ import type { UserMe } from "../types";
 import { Badge, Button, Card, Input } from "../ui";
 
 export default function Login(props: { onLogin: (token: string, user: UserMe) => void }) {
-  const [email, setEmail] = useState<string>("");
+  const showTestLogin = (import.meta as any).env?.VITE_ENABLE_TEST_LOGIN === "true";
+  const testLoginEmail = (import.meta as any).env?.VITE_TEST_LOGIN_EMAIL ?? "";
+  const [email, setEmail] = useState<string>(() => (showTestLogin ? testLoginEmail : ""));
   const [code, setCode] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [step, setStep] = useState<"email" | "otp">("email");
@@ -14,7 +16,6 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
   const [message, setMessage] = useState<string>("");
   const [error, setError] = useState<string>("");
   const showDevOtpHint = (import.meta as any).env?.DEV || (import.meta as any).env?.VITE_SHOW_DEV_OTP_HINT === "true";
-  const showTestLogin = (import.meta as any).env?.VITE_ENABLE_TEST_LOGIN === "true";
 
   const emailHint = useMemo(() => {
     return email.trim().toLowerCase().endsWith("@isikun.edu.tr");
@@ -76,8 +77,10 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
             <KeyRound className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-base font-semibold">Giris</div>
-            <div className="text-sm text-white/55">OTP dogrulama ile guvenli erisim</div>
+            <div className="text-base font-semibold">{showTestLogin ? "Test Girisi" : "Giris"}</div>
+            <div className="text-sm text-white/55">
+              {showTestLogin ? "OTP gecici olarak kapatildi" : "OTP dogrulama ile guvenli erisim"}
+            </div>
           </div>
         </div>
 
@@ -89,12 +92,14 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
           </div>
           <div className="flex items-center justify-between">
             <Badge tone={emailHint ? "green" : "slate"}>{emailHint ? "Uygun" : "@isikun.edu.tr zorunlu"}</Badge>
-            <Button onClick={onRequestOtp} disabled={loading || !emailHint}>
-              OTP Gonder
-            </Button>
+            {showTestLogin ? null : (
+              <Button onClick={onRequestOtp} disabled={loading || !emailHint}>
+                OTP Gonder
+              </Button>
+            )}
           </div>
 
-          {step === "otp" ? (
+          {!showTestLogin && step === "otp" ? (
             <div className="mt-6 space-y-3">
               <div className="text-xs font-semibold text-white/60">OTP Kodu</div>
               <Input value={code} onChange={setCode} placeholder="6 haneli kod" />
@@ -110,11 +115,11 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
           ) : null}
 
           {showTestLogin ? (
-            <div className="mt-6 space-y-3 border-t border-white/10 pt-5">
+            <div className="mt-4 space-y-3 border-t border-white/10 pt-5">
               <div className="text-xs font-semibold text-white/60">Gecici Test Girisi</div>
               <Input value={password} onChange={setPassword} type="password" placeholder="Test sifresi" />
               <div className="flex items-center justify-between gap-3">
-                <Badge tone="slate">Sadece gecici test icin</Badge>
+                <Badge tone="slate">OTP devre disi</Badge>
                 <Button onClick={onTestLogin} disabled={loading || !emailHint || password.trim().length < 4}>
                   Test Girisi
                 </Button>
