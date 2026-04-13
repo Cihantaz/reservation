@@ -1,7 +1,7 @@
 import logging
 import secrets
 import string
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import delete, select
@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 def _new_otp_code() -> str:
     return "".join(secrets.choice(string.digits) for _ in range(6))
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _issue_session_for_user(db: Session, user: User) -> SessionToken:
@@ -53,7 +59,7 @@ def verify_otp(db: Session, email: str, code: str) -> SessionToken:
     if not otp:
         raise HTTPException(status_code=400, detail="OTP istegi bulunamadi. Lutfen tekrar kod isteyin.")
 
-    if otp.expires_at < utcnow():
+    if _as_utc(otp.expires_at) < utcnow():
         db.execute(delete(OtpRequest).where(OtpRequest.id == otp.id))
         raise HTTPException(status_code=400, detail="OTP suresi doldu. Lutfen tekrar kod isteyin.")
 
@@ -163,7 +169,7 @@ def get_current_user(
     sess = db.scalar(select(SessionToken).where(SessionToken.token == token))
     if not sess:
         raise HTTPException(status_code=401, detail="Gecersiz oturum.")
-    if sess.expires_at < utcnow():
+    if _as_utc(sess.expires_at) < utcnow():
         db.execute(delete(SessionToken).where(SessionToken.id == sess.id))
         raise HTTPException(status_code=401, detail="Oturum suresi doldu.")
 
