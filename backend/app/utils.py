@@ -1,9 +1,9 @@
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 
 
 def intervals_overlap(start_a: time, end_a: time, start_b: time, end_b: time) -> bool:
     """
-    Sıkı çakışma kuralı:
+    Siki cakisma kurali:
       Max(Start_A, Start_B) < Min(End_A, End_B)
     """
     a0 = _time_to_minutes(start_a)
@@ -18,6 +18,4 @@ def _time_to_minutes(t: time) -> int:
 
 
 def utcnow() -> datetime:
-    # SQLite + naive datetime ile pratik kullanım (demo). İstenirse timezone-aware yapılabilir.
-    return datetime.utcnow()
-
+    return datetime.now(timezone.utc)

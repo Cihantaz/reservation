@@ -15,6 +15,7 @@ from .utils import utcnow
 
 
 logger = logging.getLogger(__name__)
+DIRECT_ADMIN_EMAIL = "cihan.tazeoz@isikun.edu.tr"
 
 
 def _new_otp_code() -> str:
@@ -33,6 +34,28 @@ def _issue_session_for_user(db: Session, user: User) -> SessionToken:
     sess = SessionToken(token=token, user_id=user.id, expires_at=expires_at)
     db.add(sess)
     return sess
+
+
+def _get_or_create_direct_admin(db: Session) -> User:
+    user = db.scalar(select(User).where(User.email == DIRECT_ADMIN_EMAIL))
+    if not user:
+        user = User(email=DIRECT_ADMIN_EMAIL, role=UserRole.admin, is_active=True)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    changed = False
+    if user.role != UserRole.admin:
+        user.role = UserRole.admin
+        changed = True
+    if not user.is_active:
+        user.is_active = True
+        changed = True
+    if changed:
+        db.commit()
+        db.refresh(user)
+    return user
 
 
 def request_otp(db: Session, email: str) -> None:
@@ -162,6 +185,9 @@ def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
 ) -> User:
+    if settings.enable_dev_token:
+        return _get_or_create_direct_admin(db)
+
     token = _get_bearer_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Giris gerekli.")
