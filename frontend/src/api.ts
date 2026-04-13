@@ -62,6 +62,12 @@ export async function testLogin(email: string, password: string): Promise<{ toke
   });
 }
 
+export async function autoLogin(): Promise<{ token: string; user: UserMe }> {
+  return http("/api/auth/auto-login", {
+    method: "POST"
+  });
+}
+
 export async function me(token: string): Promise<UserMe> {
   return http("/api/me", {
     headers: { Authorization: `Bearer ${token}` }
