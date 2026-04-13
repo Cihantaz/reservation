@@ -96,6 +96,30 @@ def bootstrap_login(db: Session, secret: str) -> SessionToken:
     return sess
 
 
+def test_login(db: Session, email: str, password: str) -> SessionToken:
+    expected_email = settings.test_login_email.strip().lower()
+    expected_password = settings.test_login_password.strip()
+    email = email.strip().lower()
+    password = password.strip()
+
+    if not expected_email or not expected_password:
+        raise HTTPException(status_code=404, detail="Gecici test girisi devre disi.")
+    if email != expected_email or password != expected_password:
+        raise HTTPException(status_code=401, detail="Test giris bilgileri hatali.")
+
+    user = db.scalar(select(User).where(User.email == expected_email))
+    if not user:
+        user = User(email=expected_email, role=UserRole.admin, is_active=True)
+        db.add(user)
+        db.flush()
+    elif user.role != UserRole.admin:
+        user.role = UserRole.admin
+
+    sess = _issue_session_for_user(db, user)
+    _log(db, actor=expected_email, action="auth.test_login", entity="user", entity_id=str(user.id), detail="Gecici test sifresi ile giris.")
+    return sess
+
+
 def logout(db: Session, token: str, actor_email: str) -> None:
     db.execute(delete(SessionToken).where(SessionToken.token == token))
     _log(db, actor=actor_email, action="auth.logout", detail="Oturum kapatildi.")
