@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from . import services
-from .auth import bootstrap_login, get_current_user, request_otp, require_admin, verify_otp
+from .auth import bootstrap_login, get_current_user, request_otp, require_admin, test_login, verify_otp
 from .db import Base, engine, get_db
 from .models import AuditLog, BaseSchedule, Course, Reservation, Room, Slot, User
 from .schedule_import import parse_rooms_excel, parse_schedule_excel, parse_schedule_csv
@@ -223,6 +223,16 @@ def auth_verify_otp(payload: dict, db: Session = Depends(get_db)):
 def auth_bootstrap_login(payload: dict, db: Session = Depends(get_db)):
     secret = payload.get("key", "")
     sess = bootstrap_login(db, secret=secret)
+    user = db.get(User, sess.user_id)
+    db.commit()
+    return {"token": sess.token, "user": {"email": user.email, "role": user.role}}
+
+
+@app.post("/api/auth/test-login", response_model=SessionOut)
+def auth_test_login(payload: dict, db: Session = Depends(get_db)):
+    email = payload.get("email", "")
+    password = payload.get("password", "")
+    sess = test_login(db, email=email, password=password)
     user = db.get(User, sess.user_id)
     db.commit()
     return {"token": sess.token, "user": {"email": user.email, "role": user.role}}
