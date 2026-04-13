@@ -54,6 +54,14 @@ export async function bootstrapLogin(key: string): Promise<{ token: string; user
   });
 }
 
+export async function testLogin(email: string, password: string): Promise<{ token: string; user: UserMe }> {
+  return http("/api/auth/test-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+}
+
 export async function me(token: string): Promise<UserMe> {
   return http("/api/me", {
     headers: { Authorization: `Bearer ${token}` }
