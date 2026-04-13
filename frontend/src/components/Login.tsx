@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { KeyRound, Mail, TerminalSquare } from "lucide-react";
-import { ApiError, requestOtp, verifyOtp } from "../api";
+import { ApiError, requestOtp, testLogin, verifyOtp } from "../api";
 import { setSession } from "../authStore";
 import type { UserMe } from "../types";
 import { Badge, Button, Card, Input } from "../ui";
@@ -8,11 +8,13 @@ import { Badge, Button, Card, Input } from "../ui";
 export default function Login(props: { onLogin: (token: string, user: UserMe) => void }) {
   const [email, setEmail] = useState<string>("");
   const [code, setCode] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
   const [step, setStep] = useState<"email" | "otp">("email");
   const [loading, setLoading] = useState<boolean>(false);
   const [message, setMessage] = useState<string>("");
   const [error, setError] = useState<string>("");
   const showDevOtpHint = (import.meta as any).env?.DEV || (import.meta as any).env?.VITE_SHOW_DEV_OTP_HINT === "true";
+  const showTestLogin = (import.meta as any).env?.VITE_ENABLE_TEST_LOGIN === "true";
 
   const emailHint = useMemo(() => {
     return email.trim().toLowerCase().endsWith("@isikun.edu.tr");
@@ -40,6 +42,22 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
     setLoading(true);
     try {
       const res = await verifyOtp(email, code);
+      setSession(res.token, res.user);
+      props.onLogin(res.token, res.user);
+    } catch (e) {
+      if (e instanceof ApiError) setError(e.message);
+      else setError("Bir hata olustu.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onTestLogin() {
+    setError("");
+    setMessage("");
+    setLoading(true);
+    try {
+      const res = await testLogin(email, password);
       setSession(res.token, res.user);
       props.onLogin(res.token, res.user);
     } catch (e) {
@@ -86,6 +104,19 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
                 </Button>
                 <Button onClick={onVerifyOtp} disabled={loading || code.trim().length < 4}>
                   Giris Yap
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {showTestLogin ? (
+            <div className="mt-6 space-y-3 border-t border-white/10 pt-5">
+              <div className="text-xs font-semibold text-white/60">Gecici Test Girisi</div>
+              <Input value={password} onChange={setPassword} type="password" placeholder="Test sifresi" />
+              <div className="flex items-center justify-between gap-3">
+                <Badge tone="slate">Sadece gecici test icin</Badge>
+                <Button onClick={onTestLogin} disabled={loading || !emailHint || password.trim().length < 4}>
+                  Test Girisi
                 </Button>
               </div>
             </div>
