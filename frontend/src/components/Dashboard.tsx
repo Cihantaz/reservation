@@ -10,7 +10,7 @@ import AdminPanel from "./admin/AdminPanel";
 type TabId = "rezervasyon" | "takvim" | "benim" | "admin";
 
 export default function Dashboard(props: { token: string; user: UserMe }) {
-  const [tab, setTab] = useState<TabId>("rezervasyon");
+  const [tab, setTab] = useState<TabId>(props.user.role === "admin" ? "admin" : "rezervasyon");
 
   const tabs = useMemo(
     () => {
