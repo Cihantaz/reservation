@@ -220,6 +220,7 @@ export default function AdminPanel(props: { token: string }) {
       });
       setMessage(res?.message ?? "Kaydedildi.");
       setPreview(null);
+      await loadAll();
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
       else setError("Bir hata oluştu.");
@@ -899,7 +900,9 @@ export default function AdminPanel(props: { token: string }) {
               </Button>
             </div>
             <div className="space-y-2">
-              {courses.slice(0, 16).map((c) => (
+              <div className="text-xs text-white/55">Toplam ders: {courses.length}</div>
+              <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {courses.map((c) => (
                 <div key={c.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
                   <div className="text-xs text-white/80">
                     <span className="font-semibold">{c.code}</span> <span className="text-white/45">{c.name}</span>
@@ -909,6 +912,12 @@ export default function AdminPanel(props: { token: string }) {
                   </button>
                 </div>
               ))}
+              {courses.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-4 text-xs text-white/55">
+                  Henüz ders kaydı yok.
+                </div>
+              ) : null}
+              </div>
             </div>
           </div>
         </Card>
