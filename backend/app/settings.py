@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     resend_reply_to: str = ""
     bootstrap_login_email: str = ""
     bootstrap_login_secret: str = ""
+    test_login_email: str = ""
+    test_login_password: str = ""
 
     @property
     def cors_origins(self) -> list[str]:
