@@ -1,6 +1,8 @@
-import { LayoutGrid, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { LayoutGrid, Moon, ShieldCheck, Sun } from "lucide-react";
 import Dashboard from "./components/Dashboard";
 import type { UserMe } from "./types";
+import { Button } from "./ui";
 
 const DIRECT_TOKEN = "direct-admin-access";
 const DIRECT_USER: UserMe = {
@@ -9,6 +11,17 @@ const DIRECT_USER: UserMe = {
 };
 
 export default function App() {
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    return window.localStorage.getItem("reservation.theme") === "dark" ? "dark" : "light";
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.remove("theme-light", "theme-dark");
+    document.documentElement.classList.add(theme === "dark" ? "theme-dark" : "theme-light");
+    window.localStorage.setItem("reservation.theme", theme);
+  }, [theme]);
+
   return (
     <div className="min-h-screen">
       <div className="sticky top-0 z-10 border-b border-white/10 bg-slate-950/70 backdrop-blur">
@@ -23,9 +36,16 @@ export default function App() {
             </div>
           </div>
 
-          <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80 md:flex">
-            <ShieldCheck className="h-4 w-4 text-emerald-300" />
-            <span className="truncate">{DIRECT_USER.email}</span>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" className="px-3" onClick={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}>
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {theme === "dark" ? "Aydinlik Mod" : "Dark Mode"}
+            </Button>
+
+            <div className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80 md:flex">
+              <ShieldCheck className="h-4 w-4 text-emerald-300" />
+              <span className="truncate">{DIRECT_USER.email}</span>
+            </div>
           </div>
         </div>
       </div>

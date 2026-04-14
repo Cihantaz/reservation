@@ -123,7 +123,7 @@ export default function MatrixView(props: { token: string }) {
     }
 
     return () => observer.disconnect();
-  }, [matrix, buildingFilter, visibleStatuses]);
+  }, [matrix, buildingFilter, visibleStatuses, slotIds]);
 
   function syncTopScroll() {
     const top = topScrollbarRef.current;
@@ -192,6 +192,18 @@ export default function MatrixView(props: { token: string }) {
     return Array.from(buildingSet).sort();
   }, [matrix]);
 
+  const displayedSlots = useMemo(() => {
+    const allSlots = matrix?.slots ?? [];
+    if (slotIds.length === 0) return allSlots;
+    return allSlots.filter((slot) => slotIds.includes(slot.id));
+  }, [matrix, slotIds]);
+
+  const suggestableRoomIds = useMemo(() => {
+    const rooms = matrix?.rooms ?? [];
+    if (buildingFilter.size === 0) return rooms.map((room) => room.id);
+    return rooms.filter((room) => buildingFilter.has(room.building || "A")).map((room) => room.id);
+  }, [buildingFilter, matrix]);
+
   const filteredRooms = useMemo(() => {
     let next = matrix?.rooms ?? [];
 
@@ -202,12 +214,12 @@ export default function MatrixView(props: { token: string }) {
     if (visibleStatuses.size === ALL_STATUSES.length) return next;
 
     return next.filter((room) =>
-      (matrix?.slots ?? []).some((slot) => {
+      displayedSlots.some((slot) => {
         const status = cellMap.get(`${room.id}:${slot.id}`) ?? "available";
         return visibleStatuses.has(status);
       })
     );
-  }, [buildingFilter, cellMap, matrix, visibleStatuses]);
+  }, [buildingFilter, cellMap, displayedSlots, matrix, visibleStatuses]);
 
   const selectedRoomIds = useMemo(() => {
     const ids = new Set<number>();
@@ -279,6 +291,10 @@ export default function MatrixView(props: { token: string }) {
       setError("En az 1 slot secmelisiniz.");
       return;
     }
+    if (suggestableRoomIds.length === 0) {
+      setError("Secili sinif filtresinde onerilecek derslik kalmadi.");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -287,6 +303,7 @@ export default function MatrixView(props: { token: string }) {
         slot_ids: slotIds,
         required_capacity: cap,
         use_exam_capacity: useExamCapacity,
+        room_ids: suggestableRoomIds,
         purpose,
         course_id: courseId ? Number(courseId) : null
       });
@@ -433,7 +450,7 @@ export default function MatrixView(props: { token: string }) {
 
         <div className="mt-4 grid gap-2 xl:grid-cols-[minmax(0,1.5fr)_240px]">
           <div>
-            <div className="text-xs font-semibold text-white/60">Bina Filtresi</div>
+            <div className="text-xs font-semibold text-white/60">Sinif/Bina Filtresi</div>
             <div className="mt-1 flex flex-wrap gap-2">
               {allBuildings.map((building) => {
                 const active = buildingFilter.size === 0 || buildingFilter.has(building);
@@ -529,7 +546,7 @@ export default function MatrixView(props: { token: string }) {
               ))}
             </div>
             <div className="mt-2 text-xs text-white/55">
-              Sistem yalnizca secilen slotlarda uygun olan siniflari onerir.
+              Sistem yalnizca secilen slotlarda ve secili sinif filtresi icinde uygun olan siniflari onerir.
             </div>
           </div>
         ) : null}
@@ -601,12 +618,12 @@ export default function MatrixView(props: { token: string }) {
                 className="relative flex-1 overflow-auto rounded-2xl border border-white/10 bg-slate-950/20"
               >
                 <div className="min-w-[900px]">
-                  <div className="grid" style={{ gridTemplateColumns: `260px repeat(${matrix.slots.length}, minmax(140px, 1fr))` }}>
+                  <div className="grid" style={{ gridTemplateColumns: `260px repeat(${displayedSlots.length}, minmax(140px, 1fr))` }}>
                     <div className="sticky left-0 top-0 z-[12] min-w-[260px] border-b border-r border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white/60 shadow-[8px_8px_24px_-16px_rgba(15,23,42,0.95)] backdrop-blur">
                       Sinif
                     </div>
 
-                    {matrix.slots.map((slot) => (
+                    {displayedSlots.map((slot) => (
                       <div
                         key={slot.id}
                         className="sticky top-0 z-[11] border-b border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white/60 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.95)] backdrop-blur"
@@ -626,7 +643,7 @@ export default function MatrixView(props: { token: string }) {
                           </div>
                         </div>
 
-                        {matrix.slots.map((slot) => {
+                        {displayedSlots.map((slot) => {
                           const status = cellMap.get(`${room.id}:${slot.id}`) ?? "available";
                           const selected = selectedCells.has(`${room.id}:${slot.id}`);
                           const visible = visibleStatuses.has(status);
@@ -646,20 +663,20 @@ export default function MatrixView(props: { token: string }) {
                                   if (status !== "available") return;
                                   toggleCell(room.id, slot.id);
                                 }}
-                                className={
-                                  "flex h-16 w-full items-center justify-center rounded-2xl border text-xs font-semibold transition " +
-                                  (visible ? color : "border-white/5 bg-transparent text-transparent") +
-                                  (visible
-                                    ? status === "available"
-                                      ? " hover:brightness-110"
-                                      : " cursor-not-allowed opacity-90"
-                                    : " cursor-default") +
-                                  (visible && selected ? " ring-2 ring-sky-400/60" : "")
-                                }
-                                title={!visible ? "Filtre disi" : status === "available" ? "Sec / Kaldir" : "Secilemez"}
-                              >
-                                {visible ? (selected ? "Secildi" : label) : ""}
-                              </button>
+                                  className={
+                                    "flex h-16 w-full items-center justify-center rounded-2xl border text-xs font-semibold transition " +
+                                    (visible ? color : "border-white/5 bg-transparent text-transparent") +
+                                    (visible
+                                      ? status === "available"
+                                        ? " hover:brightness-110"
+                                        : " cursor-not-allowed opacity-90"
+                                      : " cursor-default") +
+                                    (visible && selected ? " ring-2 ring-sky-400/60" : "")
+                                  }
+                                  title={!visible ? "Filtre disi" : status === "available" ? "Sec / Kaldir" : "Secilemez"}
+                                >
+                                  {visible ? (selected ? "Secildi" : label) : ""}
+                                </button>
                             </div>
                           );
                         })}
