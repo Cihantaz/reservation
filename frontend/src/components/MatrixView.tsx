@@ -12,6 +12,10 @@ import {
 import type { AvailabilityMatrix, Course, Slot, SuggestResponse } from "../types";
 import { Badge, Button, Card, Input, Select } from "../ui";
 
+type MatrixStatus = "available" | "locked" | "booked";
+
+const ALL_STATUSES: MatrixStatus[] = ["available", "locked", "booked"];
+
 function todayIso(): string {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -20,38 +24,36 @@ function todayIso(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-type WeekdayId = "Pzt" | "Sal" | "Çar" | "Per" | "Cum";
+function formatCourseLabel(course: Course): string {
+  const code = course.code.trim();
+  const name = course.name.trim();
+  return !name || name.toLowerCase() === code.toLowerCase() ? code : `${code} - ${name}`;
+}
 
-function weekdayFromDateIso(iso: string): WeekdayId {
-  const d = new Date(iso + "T00:00:00");
-  const day = d.getDay(); // 0=Sun
-  if (day === 1) return "Pzt";
-  if (day === 2) return "Sal";
-  if (day === 3) return "Çar";
-  if (day === 4) return "Per";
-  return "Cum";
+function statusLabel(status: MatrixStatus): string {
+  if (status === "available") return "Yesil: Uygun";
+  if (status === "locked") return "Sari: Kilitli";
+  return "Kirmizi: Dolu";
 }
 
 export default function MatrixView(props: { token: string }) {
   const [day, setDay] = useState<string>(() => todayIso());
   const [slots, setSlots] = useState<Slot[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [courseId, setCourseId] = useState<string>(""); // "" => seçilmedi
+  const [courseId, setCourseId] = useState<string>("");
   const [slotIds, setSlotIds] = useState<number[]>([]);
   const [requiredCapacity, setRequiredCapacity] = useState<string>("40");
   const [useExamCapacity, setUseExamCapacity] = useState<boolean>(true);
-  const [purpose, setPurpose] = useState<string>("Sınav");
+  const [purpose, setPurpose] = useState<string>("Sinav");
   const [matrix, setMatrix] = useState<AvailabilityMatrix | null>(null);
   const [suggestion, setSuggestion] = useState<SuggestResponse | null>(null);
-  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set()); // "room_id:slot_id"
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const [lockedUntil, setLockedUntil] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
-
-  // Client-side filters
-  const [buildingFilter, setBuildingFilter] = useState<Set<string>>(new Set()); // boş => hepsi
-  const [statusFilter, setStatusFilter] = useState<"all" | "only_available" | "only_occupied">("all");
+  const [buildingFilter, setBuildingFilter] = useState<Set<string>>(new Set());
+  const [visibleStatuses, setVisibleStatuses] = useState<Set<MatrixStatus>>(new Set(ALL_STATUSES));
   const [matrixScrollWidth, setMatrixScrollWidth] = useState(0);
   const [matrixViewportWidth, setMatrixViewportWidth] = useState(0);
   const [matrixScrollHeight, setMatrixScrollHeight] = useState(0);
@@ -64,41 +66,43 @@ export default function MatrixView(props: { token: string }) {
 
   useEffect(() => {
     let cancelled = false;
+
     async function run() {
       try {
-        const [s, c] = await Promise.all([apiSlots(props.token), apiCourses(props.token)]);
+        const [slotItems, courseItems] = await Promise.all([apiSlots(props.token), apiCourses(props.token)]);
         if (cancelled) return;
-        setSlots(s);
-        setCourses(c);
+        setSlots(slotItems);
+        setCourses(courseItems);
       } catch {
-        // ignore
+        // ignore bootstrap errors in direct-access mode
       }
     }
+
     run();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [props.token]);
 
   async function refreshMatrix() {
-    const m = await apiAvailability(props.token, day);
-    setMatrix(m);
+    const next = await apiAvailability(props.token, day);
+    setMatrix(next);
   }
 
   useEffect(() => {
     refreshMatrix().catch(() => void 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [day]);
+  }, [day, props.token]);
 
   useEffect(() => {
     const updateScrollMetrics = () => {
       const scroller = matrixScrollRef.current;
       if (!scroller) return;
+
       setMatrixScrollWidth(scroller.scrollWidth);
       setMatrixViewportWidth(scroller.clientWidth);
       setMatrixScrollHeight(scroller.scrollHeight);
       setMatrixViewportHeight(scroller.clientHeight);
+
       if (topScrollbarRef.current && horizontalSyncSourceRef.current !== "top") {
         topScrollbarRef.current.scrollLeft = scroller.scrollLeft;
       }
@@ -119,16 +123,18 @@ export default function MatrixView(props: { token: string }) {
     }
 
     return () => observer.disconnect();
-  }, [matrix, buildingFilter, statusFilter]);
+  }, [matrix, buildingFilter, visibleStatuses]);
 
   function syncTopScroll() {
     const top = topScrollbarRef.current;
     const scroller = matrixScrollRef.current;
     if (!top || !scroller) return;
+
     if (horizontalSyncSourceRef.current === "matrix") {
       horizontalSyncSourceRef.current = null;
       return;
     }
+
     horizontalSyncSourceRef.current = "top";
     scroller.scrollLeft = top.scrollLeft;
   }
@@ -137,87 +143,89 @@ export default function MatrixView(props: { token: string }) {
     const side = sideScrollbarRef.current;
     const scroller = matrixScrollRef.current;
     if (!side || !scroller) return;
+
     if (verticalSyncSourceRef.current === "matrix") {
       verticalSyncSourceRef.current = null;
       return;
     }
+
     verticalSyncSourceRef.current = "side";
     scroller.scrollTop = side.scrollTop;
   }
 
   function syncMatrixScroll() {
-    const top = topScrollbarRef.current;
-    const side = sideScrollbarRef.current;
     const scroller = matrixScrollRef.current;
     if (!scroller) return;
-    if (top) {
+
+    if (topScrollbarRef.current) {
       if (horizontalSyncSourceRef.current === "top") {
         horizontalSyncSourceRef.current = null;
       } else {
         horizontalSyncSourceRef.current = "matrix";
-        top.scrollLeft = scroller.scrollLeft;
+        topScrollbarRef.current.scrollLeft = scroller.scrollLeft;
       }
     }
-    if (side) {
+
+    if (sideScrollbarRef.current) {
       if (verticalSyncSourceRef.current === "side") {
         verticalSyncSourceRef.current = null;
       } else {
         verticalSyncSourceRef.current = "matrix";
-        side.scrollTop = scroller.scrollTop;
+        sideScrollbarRef.current.scrollTop = scroller.scrollTop;
       }
     }
   }
 
   const cellMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const c of matrix?.cells ?? []) map.set(`${c.room_id}:${c.slot_id}`, c.status);
+    const map = new Map<string, MatrixStatus>();
+    for (const cell of matrix?.cells ?? []) {
+      map.set(`${cell.room_id}:${cell.slot_id}`, cell.status as MatrixStatus);
+    }
     return map;
   }, [matrix]);
 
   const allBuildings = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of matrix?.rooms ?? []) s.add(r.building || "A");
-    return Array.from(s).sort();
+    const buildingSet = new Set<string>();
+    for (const room of matrix?.rooms ?? []) {
+      buildingSet.add(room.building || "A");
+    }
+    return Array.from(buildingSet).sort();
   }, [matrix]);
 
   const filteredRooms = useMemo(() => {
-    const rooms = matrix?.rooms ?? [];
-    let out = rooms;
-    if (buildingFilter.size !== 0) out = out.filter((r) => buildingFilter.has(r.building || "A"));
+    let next = matrix?.rooms ?? [];
 
-    if (statusFilter === "all") return out;
+    if (buildingFilter.size !== 0) {
+      next = next.filter((room) => buildingFilter.has(room.building || "A"));
+    }
 
-    // "Sadece Boşlar": odanın herhangi bir slotunda booked/locked varsa gizle
-    // "Sadece Dolular": odanın en az bir slotu booked/locked ise göster
-    const hasOccupied = (roomId: number) => {
-      for (const s of matrix?.slots ?? []) {
-        const st = cellMap.get(`${roomId}:${s.id}`) ?? "available";
-        if (st !== "available") return true;
-      }
-      return false;
-    };
+    if (visibleStatuses.size === ALL_STATUSES.length) return next;
 
-    if (statusFilter === "only_available") return out.filter((r) => !hasOccupied(r.id));
-    return out.filter((r) => hasOccupied(r.id));
-  }, [matrix, buildingFilter, statusFilter, cellMap]);
+    return next.filter((room) =>
+      (matrix?.slots ?? []).some((slot) => {
+        const status = cellMap.get(`${room.id}:${slot.id}`) ?? "available";
+        return visibleStatuses.has(status);
+      })
+    );
+  }, [buildingFilter, cellMap, matrix, visibleStatuses]);
 
   const selectedRoomIds = useMemo(() => {
     const ids = new Set<number>();
     for (const key of selectedCells) {
-      const [r] = key.split(":");
-      ids.add(Number(r));
+      const [roomId] = key.split(":");
+      ids.add(Number(roomId));
     }
     return Array.from(ids);
   }, [selectedCells]);
 
   const totalSelectedCapacity = useMemo(() => {
-    const rooms = matrix?.rooms ?? [];
-    const byId = new Map<number, any>(rooms.map((r) => [r.id, r]));
+    const roomById = new Map((matrix?.rooms ?? []).map((room) => [room.id, room]));
     const capKey = useExamCapacity ? "exam_capacity" : "class_capacity";
+
     let total = 0;
-    for (const rid of selectedRoomIds) {
-      const r = byId.get(rid);
-      if (r) total += Number(r[capKey]) || 0;
+    for (const roomId of selectedRoomIds) {
+      const room = roomById.get(roomId);
+      if (room) total += Number(room[capKey]) || 0;
     }
     return total;
   }, [matrix, selectedRoomIds, useExamCapacity]);
@@ -226,11 +234,21 @@ export default function MatrixView(props: { token: string }) {
     setSlotIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].sort((a, b) => a - b)));
   }
 
-  function toggleBuilding(b: string) {
+  function toggleBuilding(building: string) {
     setBuildingFilter((prev) => {
       const next = new Set(prev);
-      if (next.has(b)) next.delete(b);
-      else next.add(b);
+      if (next.has(building)) next.delete(building);
+      else next.add(building);
+      return next;
+    });
+  }
+
+  function toggleVisibleStatus(status: MatrixStatus) {
+    setVisibleStatuses((prev) => {
+      if (prev.has(status) && prev.size === 1) return prev;
+      const next = new Set(prev);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
       return next;
     });
   }
@@ -251,15 +269,17 @@ export default function MatrixView(props: { token: string }) {
     setLockedUntil("");
     setSuggestion(null);
     setSelectedCells(new Set());
+
     const cap = Number(requiredCapacity);
     if (!Number.isFinite(cap) || cap <= 0) {
-      setError("Kapasite pozitif bir sayı olmalıdır.");
+      setError("Kapasite pozitif bir sayi olmalidir.");
       return;
     }
     if (!slotIds.length) {
-      setError("En az 1 slot seçmelisiniz.");
+      setError("En az 1 slot secmelisiniz.");
       return;
     }
+
     setLoading(true);
     try {
       const res = await apiSuggest(props.token, {
@@ -271,14 +291,18 @@ export default function MatrixView(props: { token: string }) {
         course_id: courseId ? Number(courseId) : null
       });
       setSuggestion(res);
-      // Öneriyi hücre seçimine dönüştür (room × slotIds)
+
       const next = new Set<string>();
-      for (const r of res.rooms) for (const sid of slotIds) next.add(`${r.id}:${sid}`);
+      for (const room of res.rooms) {
+        for (const slotId of slotIds) {
+          next.add(`${room.id}:${slotId}`);
+        }
+      }
       setSelectedCells(next);
       await refreshMatrix();
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
-      else setError("Bir hata oluştu.");
+      else setError("Bir hata olustu.");
     } finally {
       setLoading(false);
     }
@@ -287,14 +311,16 @@ export default function MatrixView(props: { token: string }) {
   async function onLock() {
     setError("");
     setSuccess("");
+
     if (selectedCells.size === 0) {
-      setError("En az 1 hücre seçmelisiniz.");
+      setError("En az 1 hucre secmelisiniz.");
       return;
     }
+
     setLoading(true);
     try {
-      const cells = Array.from(selectedCells).map((k) => {
-        const [room_id, slot_id] = k.split(":").map(Number);
+      const cells = Array.from(selectedCells).map((key) => {
+        const [room_id, slot_id] = key.split(":").map(Number);
         return { room_id, slot_id };
       });
       const res = await apiLockCells(props.token, { day, cells });
@@ -302,7 +328,7 @@ export default function MatrixView(props: { token: string }) {
       await refreshMatrix();
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
-      else setError("Bir hata oluştu.");
+      else setError("Bir hata olustu.");
     } finally {
       setLoading(false);
     }
@@ -311,16 +337,19 @@ export default function MatrixView(props: { token: string }) {
   async function onConfirm() {
     setError("");
     setSuccess("");
+
     if (!lockedUntil) {
-      setError("Önce kilitleme yapmalısınız.");
+      setError("Once kilitleme yapmalisiniz.");
       return;
     }
+
     setLoading(true);
     try {
-      const cells = Array.from(selectedCells).map((k) => {
-        const [room_id, slot_id] = k.split(":").map(Number);
+      const cells = Array.from(selectedCells).map((key) => {
+        const [room_id, slot_id] = key.split(":").map(Number);
         return { room_id, slot_id };
       });
+
       await apiConfirmCells(props.token, {
         day,
         cells,
@@ -328,14 +357,15 @@ export default function MatrixView(props: { token: string }) {
         requested_capacity: Number(requiredCapacity) || 0,
         course_id: courseId ? Number(courseId) : null
       });
-      setSuccess("Rezervasyon onaylandı.");
+
+      setSuccess("Rezervasyon onaylandi.");
       setLockedUntil("");
       setSuggestion(null);
       setSelectedCells(new Set());
       await refreshMatrix();
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
-      else setError("Bir hata oluştu.");
+      else setError("Bir hata olustu.");
     } finally {
       setLoading(false);
     }
@@ -350,28 +380,35 @@ export default function MatrixView(props: { token: string }) {
               <div className="text-xs font-semibold text-white/60">Tarih</div>
               <Input value={day} onChange={setDay} type="date" />
             </div>
+
             <div>
-              <div className="text-xs font-semibold text-white/60">Kapasite İhtiyacı</div>
-              <Input value={requiredCapacity} onChange={setRequiredCapacity} type="number" placeholder="Örn: 40" />
+              <div className="text-xs font-semibold text-white/60">Kapasite Ihtiyaci</div>
+              <Input value={requiredCapacity} onChange={setRequiredCapacity} type="number" placeholder="Orn: 40" />
               <div className="mt-1 flex flex-wrap items-center gap-2">
-                <Badge tone={useExamCapacity ? "green" : "slate"}>Kapasite Türü: {useExamCapacity ? "Sınav Kapasitesi" : "Sınıf Kapasitesi"}</Badge>
-                <Button variant="secondary" onClick={() => setUseExamCapacity((v) => !v)}>
-                  Değiştir
+                <Badge tone={useExamCapacity ? "green" : "slate"}>
+                  Kapasite Turu: {useExamCapacity ? "Sinav Kapasitesi" : "Sinif Kapasitesi"}
+                </Badge>
+                <Button variant="secondary" onClick={() => setUseExamCapacity((value) => !value)}>
+                  Degistir
                 </Button>
               </div>
             </div>
+
             <div>
-              <div className="text-xs font-semibold text-white/60">Amaç</div>
-              <Input value={purpose} onChange={setPurpose} placeholder="Sınav / Proje / Etüt" />
-              <div className="mt-2 text-xs text-white/50">Ders seçimi opsiyonel. Seçilmezse “ad-hoc” rezervasyon sayılır.</div>
+              <div className="text-xs font-semibold text-white/60">Amac</div>
+              <Input value={purpose} onChange={setPurpose} placeholder="Sinav / Proje / Etut" />
+              <div className="mt-2 text-xs text-white/50">
+                Ders secimi opsiyonel. Secilmezse ad-hoc rezervasyon sayilir.
+              </div>
             </div>
+
             <div>
               <div className="text-xs font-semibold text-white/60">Ders (opsiyonel)</div>
               <Select value={courseId} onChange={setCourseId}>
-                <option value="">Ders seçilmedi</option>
-                {courses.map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.code} — {c.name}
+                <option value="">Ders secilmedi</option>
+                {courses.map((course) => (
+                  <option key={course.id} value={String(course.id)}>
+                    {formatCourseLabel(course)}
                   </option>
                 ))}
               </Select>
@@ -381,7 +418,7 @@ export default function MatrixView(props: { token: string }) {
           <div className="flex flex-wrap gap-2 lg:pt-5">
             <Button onClick={onSuggest} disabled={loading}>
               <Sparkles className="h-4 w-4" />
-              Akıllı Öneri
+              Akilli Oneri
             </Button>
             <Button variant="secondary" onClick={onLock} disabled={loading || selectedCells.size === 0}>
               <Lock className="h-4 w-4" />
@@ -394,56 +431,45 @@ export default function MatrixView(props: { token: string }) {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 xl:grid-cols-[minmax(0,1.5fr)_220px_240px]">
+        <div className="mt-4 grid gap-2 xl:grid-cols-[minmax(0,1.5fr)_240px]">
           <div>
-            <div className="text-xs font-semibold text-white/60">Bina Filtresi (client-side)</div>
-              <div className="mt-1 flex flex-wrap gap-2">
-              {allBuildings.map((b) => {
-                const active = buildingFilter.size === 0 ? true : buildingFilter.has(b);
+            <div className="text-xs font-semibold text-white/60">Bina Filtresi</div>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {allBuildings.map((building) => {
+                const active = buildingFilter.size === 0 || buildingFilter.has(building);
                 return (
                   <button
-                    key={b}
-                    onClick={() => toggleBuilding(b)}
+                    key={building}
+                    type="button"
+                    onClick={() => toggleBuilding(building)}
                     className={
                       "rounded-xl border px-3 py-2 text-xs font-semibold transition " +
-                      (active ? "border-sky-400/40 bg-sky-500/15 text-sky-200" : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
+                      (active
+                        ? "border-sky-400/40 bg-sky-500/15 text-sky-200"
+                        : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
                     }
-                    title="Bina görünürlüğünü aç/kapat"
                   >
-                    {b}
+                    {building}
                   </button>
                 );
               })}
               {allBuildings.length ? (
                 <button
+                  type="button"
                   onClick={() => setBuildingFilter(new Set())}
                   className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/10"
-                  title="Tüm binaları göster"
                 >
-                  Tümü
+                  Tumu
                 </button>
               ) : null}
             </div>
           </div>
 
           <div>
-            <div className="text-xs font-semibold text-white/60">Durum Filtresi</div>
-            <Select
-              value={statusFilter}
-              onChange={(v) => setStatusFilter(v as any)}
-              className="mt-1"
-            >
-              <option value="all">Tümü</option>
-              <option value="only_available">Sadece Boşlar</option>
-              <option value="only_occupied">Sadece Dolular</option>
-            </Select>
-          </div>
-
-          <div>
-            <div className="text-xs font-semibold text-white/60">Seçim</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-              <Badge tone="slate">Hücre: {selectedCells.size}</Badge>
-              <Badge tone="slate">Sınıf: {selectedRoomIds.length}</Badge>
+            <div className="text-xs font-semibold text-white/60">Secim</div>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Badge tone="slate">Hucre: {selectedCells.size}</Badge>
+              <Badge tone="slate">Sinif: {selectedRoomIds.length}</Badge>
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -453,27 +479,30 @@ export default function MatrixView(props: { token: string }) {
                 }}
                 disabled={selectedCells.size === 0 && !lockedUntil}
               >
-                Seçimi Temizle
+                Secimi Temizle
               </Button>
             </div>
           </div>
         </div>
 
         <div className="mt-4">
-          <div className="text-xs font-semibold text-white/60">Slot Seçimi</div>
+          <div className="text-xs font-semibold text-white/60">Slot Secimi</div>
           <div className="mt-1 flex flex-wrap gap-2">
-            {slots.map((s) => {
-              const active = slotIds.includes(s.id);
+            {slots.map((slot) => {
+              const active = slotIds.includes(slot.id);
               return (
                 <button
-                  key={s.id}
-                  onClick={() => toggleSlot(s.id)}
+                  key={slot.id}
+                  type="button"
+                  onClick={() => toggleSlot(slot.id)}
                   className={
                     "rounded-xl border px-3 py-2 text-xs font-semibold transition " +
-                    (active ? "border-sky-400/40 bg-sky-500/15 text-sky-200" : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
+                    (active
+                      ? "border-sky-400/40 bg-sky-500/15 text-sky-200"
+                      : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
                   }
                 >
-                  {s.code} <span className="font-normal text-white/45">({s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)})</span>
+                  {slot.code} <span className="font-normal text-white/45">({slot.start_time.slice(0, 5)}-{slot.end_time.slice(0, 5)})</span>
                 </button>
               );
             })}
@@ -483,22 +512,24 @@ export default function MatrixView(props: { token: string }) {
         {suggestion ? (
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div className="text-sm font-semibold">Önerilen Sınıflar</div>
+              <div className="text-sm font-semibold">Onerilen Siniflar</div>
               <div className="flex flex-wrap gap-2">
-                <Badge tone="slate">İhtiyaç: {suggestion.required_capacity}</Badge>
+                <Badge tone="slate">Ihtiyac: {suggestion.required_capacity}</Badge>
                 <Badge tone="green">Toplam: {suggestion.total_capacity}</Badge>
-                {lockedUntil ? <Badge tone="yellow">Kilitli (son): {new Date(lockedUntil).toLocaleTimeString("tr-TR")}</Badge> : null}
+                {lockedUntil ? (
+                  <Badge tone="yellow">Kilitli (son): {new Date(lockedUntil).toLocaleTimeString("tr-TR")}</Badge>
+                ) : null}
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {suggestion.rooms.map((r) => (
-                <Badge key={r.id} tone="slate">
-                  {r.name} ({r.capacity})
+              {suggestion.rooms.map((room) => (
+                <Badge key={room.id} tone="slate">
+                  {room.name} ({room.capacity})
                 </Badge>
               ))}
             </div>
             <div className="mt-2 text-xs text-white/55">
-              Eğer tek sınıf yetmezse sistem otomatik olarak aynı slot içinde birden fazla sınıf kombinasyonu önerir.
+              Sistem yalnizca secilen slotlarda uygun olan siniflari onerir.
             </div>
           </div>
         ) : null}
@@ -509,28 +540,48 @@ export default function MatrixView(props: { token: string }) {
             <div>{error}</div>
           </div>
         ) : null}
+
         {success ? (
-          <div className="mt-4 rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">{success}</div>
+          <div className="mt-4 rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            {success}
+          </div>
         ) : null}
       </Card>
 
       <Card className="flex min-h-[calc(100vh-18rem)] flex-col p-4 lg:p-5">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-sm font-semibold">Sınıf Matrisi</div>
+            <div className="text-sm font-semibold">Sinif Matrisi</div>
             <div className="text-xs text-white/55">
-              Her kutu: <span className="font-semibold">Sınıf Kapasitesi</span> + <span className="font-semibold">Sınav Kapasitesi</span>
+              Her kutu: <span className="font-semibold">Sinif Kapasitesi</span> + <span className="font-semibold">Sinav Kapasitesi</span>
             </div>
           </div>
+
           <div className="flex flex-wrap gap-2">
-            <Badge tone="green">Yeşil: Uygun</Badge>
-            <Badge tone="yellow">Sarı: Kilitli</Badge>
-            <Badge tone="red">Kırmızı: Dolu</Badge>
+            {ALL_STATUSES.map((status) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => toggleVisibleStatus(status)}
+                className={
+                  "rounded-xl border px-3 py-2 text-xs font-semibold transition " +
+                  (visibleStatuses.has(status)
+                    ? status === "available"
+                      ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100"
+                      : status === "locked"
+                        ? "border-amber-400/40 bg-amber-500/15 text-amber-100"
+                        : "border-rose-400/40 bg-rose-500/15 text-rose-100"
+                    : "border-white/10 bg-white/5 text-white/55")
+                }
+              >
+                {statusLabel(status)}
+              </button>
+            ))}
           </div>
         </div>
 
         {!matrix ? (
-          <div className="mt-4 text-sm text-white/60">Yükleniyor…</div>
+          <div className="mt-4 text-sm text-white/60">Yukleniyor...</div>
         ) : (
           <div className="mt-5 flex min-h-0 flex-1 flex-col space-y-3">
             {matrixScrollWidth > matrixViewportWidth ? (
@@ -542,70 +593,79 @@ export default function MatrixView(props: { token: string }) {
                 <div className="h-4" style={{ width: matrixScrollWidth }} />
               </div>
             ) : null}
+
             <div className="flex min-h-0 flex-1 gap-3">
               <div
                 ref={matrixScrollRef}
                 onScroll={syncMatrixScroll}
-                className="flex-1 overflow-auto rounded-2xl border border-white/10 bg-slate-950/20"
+                className="relative flex-1 overflow-auto rounded-2xl border border-white/10 bg-slate-950/20"
               >
-              <div className="min-w-[900px]">
-              <div className="grid" style={{ gridTemplateColumns: `260px repeat(${matrix.slots.length}, minmax(140px, 1fr))` }}>
-                <div className="sticky left-0 top-0 z-[6] min-w-[260px] border-r border-white/10 bg-slate-950/95 px-3 py-2 text-xs font-semibold text-white/60 shadow-[8px_0_24px_-16px_rgba(15,23,42,0.95)] backdrop-blur">
-                  Sınıf
-                </div>
-                {matrix.slots.map((s) => (
-                  <div key={s.id} className="sticky top-0 z-[5] bg-slate-950/95 px-3 py-2 text-xs font-semibold text-white/60 backdrop-blur">
-                    {s.code} <span className="font-normal text-white/40">({s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)})</span>
-                  </div>
-                ))}
-
-                {filteredRooms.map((r) => (
-                  <div key={r.id} className="contents">
-                    <div className="sticky left-0 z-[3] min-w-[260px] border-r border-t border-white/10 bg-slate-950/95 px-3 py-3 shadow-[8px_0_24px_-16px_rgba(15,23,42,0.95)] backdrop-blur">
-                      <div className="text-sm font-semibold">{r.name}</div>
-                      <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                        <Badge tone="slate">Bina: {r.building}</Badge>
-                        <Badge tone="slate">Sınıf Kapasitesi: {r.class_capacity}</Badge>
-                        <Badge tone="slate">Sınav Kapasitesi: {r.exam_capacity}</Badge>
-                      </div>
+                <div className="min-w-[900px]">
+                  <div className="grid" style={{ gridTemplateColumns: `260px repeat(${matrix.slots.length}, minmax(140px, 1fr))` }}>
+                    <div className="sticky left-0 top-0 z-[12] min-w-[260px] border-b border-r border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white/60 shadow-[8px_8px_24px_-16px_rgba(15,23,42,0.95)] backdrop-blur">
+                      Sinif
                     </div>
-                    {matrix.slots.map((s) => {
-                      const st = cellMap.get(`${r.id}:${s.id}`) ?? "available";
-                      const sel = selectedCells.has(`${r.id}:${s.id}`);
-                      const color =
-                        st === "booked"
-                          ? "bg-rose-500/20 border-rose-400/20"
-                          : st === "locked"
-                            ? "bg-amber-500/20 border-amber-400/20"
-                            : "bg-emerald-500/10 border-emerald-400/10";
-                      const label = st === "booked" ? "Dolu" : st === "locked" ? "Kilitli" : "Uygun";
-                      return (
-                        <div key={s.id} className="border-t border-white/10 px-3 py-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (st !== "available") return;
-                              toggleCell(r.id, s.id);
-                            }}
-                            className={
-                              "h-16 w-full rounded-2xl border " +
-                              color +
-                              " flex items-center justify-center text-xs font-semibold transition " +
-                              (st === "available" ? "hover:brightness-110" : "cursor-not-allowed opacity-90") +
-                              (sel ? " ring-2 ring-sky-400/60" : "")
-                            }
-                            title={st === "available" ? "Seç/Kaldır (çoklu seçim)" : "Seçilemez"}
-                          >
-                            {sel ? "Seçildi" : label}
-                          </button>
+
+                    {matrix.slots.map((slot) => (
+                      <div
+                        key={slot.id}
+                        className="sticky top-0 z-[11] border-b border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white/60 shadow-[0_8px_20px_-16px_rgba(15,23,42,0.95)] backdrop-blur"
+                      >
+                        {slot.code} <span className="font-normal text-white/40">({slot.start_time.slice(0, 5)}-{slot.end_time.slice(0, 5)})</span>
+                      </div>
+                    ))}
+
+                    {filteredRooms.map((room) => (
+                      <div key={room.id} className="contents">
+                        <div className="sticky left-0 z-[9] min-w-[260px] border-r border-t border-white/10 bg-slate-950/95 px-3 py-3 shadow-[8px_0_24px_-16px_rgba(15,23,42,0.95)] backdrop-blur">
+                          <div className="text-sm font-semibold">{room.name}</div>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                            <Badge tone="slate">Bina: {room.building}</Badge>
+                            <Badge tone="slate">Sinif Kap.: {room.class_capacity}</Badge>
+                            <Badge tone="slate">Sinav Kap.: {room.exam_capacity}</Badge>
+                          </div>
                         </div>
-                      );
-                    })}
+
+                        {matrix.slots.map((slot) => {
+                          const status = cellMap.get(`${room.id}:${slot.id}`) ?? "available";
+                          const selected = selectedCells.has(`${room.id}:${slot.id}`);
+                          const visible = visibleStatuses.has(status);
+                          const color =
+                            status === "booked"
+                              ? "bg-rose-500/20 border-rose-400/20"
+                              : status === "locked"
+                                ? "bg-amber-500/20 border-amber-400/20"
+                                : "bg-emerald-500/10 border-emerald-400/10";
+                          const label = status === "booked" ? "Dolu" : status === "locked" ? "Kilitli" : "Uygun";
+
+                          return (
+                            <div key={slot.id} className="border-t border-white/10 px-3 py-3">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (status !== "available") return;
+                                  toggleCell(room.id, slot.id);
+                                }}
+                                className={
+                                  "flex h-16 w-full items-center justify-center rounded-2xl border text-xs font-semibold transition " +
+                                  color +
+                                  (status === "available" ? " hover:brightness-110" : " cursor-not-allowed opacity-90") +
+                                  (visible ? "" : " opacity-25 saturate-0") +
+                                  (selected ? " ring-2 ring-sky-400/60" : "")
+                                }
+                                title={status === "available" ? "Sec / Kaldir" : "Secilemez"}
+                              >
+                                {selected ? "Secildi" : label}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
-                ))}
                 </div>
               </div>
-              </div>
+
               {matrixScrollHeight > matrixViewportHeight ? (
                 <div
                   ref={sideScrollbarRef}
@@ -626,13 +686,14 @@ export default function MatrixView(props: { token: string }) {
           <div className="rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.9)] backdrop-blur">
             <div className="text-xs font-semibold text-white/60">Toplam Kapasite</div>
             <div className="text-sm font-semibold text-white">
-              Toplam: {totalSelectedCapacity} {useExamCapacity ? "sınav" : "sınıf"} kapasitesi seçildi
+              Toplam: {totalSelectedCapacity} {useExamCapacity ? "sinav" : "sinif"} kapasitesi secildi
             </div>
-            <div className="mt-1 text-xs text-white/50">Not: aynı sınıf birden fazla slot seçilse de kapasite 1 kez sayılır.</div>
+            <div className="mt-1 text-xs text-white/50">
+              Not: ayni sinif birden fazla slot secilse de kapasite 1 kez sayilir.
+            </div>
           </div>
         </div>
       ) : null}
     </div>
   );
 }
-
