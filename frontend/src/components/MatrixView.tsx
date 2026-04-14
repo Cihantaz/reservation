@@ -648,14 +648,17 @@ export default function MatrixView(props: { token: string }) {
                                 }}
                                 className={
                                   "flex h-16 w-full items-center justify-center rounded-2xl border text-xs font-semibold transition " +
-                                  color +
-                                  (status === "available" ? " hover:brightness-110" : " cursor-not-allowed opacity-90") +
-                                  (visible ? "" : " opacity-25 saturate-0") +
-                                  (selected ? " ring-2 ring-sky-400/60" : "")
+                                  (visible ? color : "border-white/5 bg-transparent text-transparent") +
+                                  (visible
+                                    ? status === "available"
+                                      ? " hover:brightness-110"
+                                      : " cursor-not-allowed opacity-90"
+                                    : " cursor-default") +
+                                  (visible && selected ? " ring-2 ring-sky-400/60" : "")
                                 }
-                                title={status === "available" ? "Sec / Kaldir" : "Secilemez"}
+                                title={!visible ? "Filtre disi" : status === "available" ? "Sec / Kaldir" : "Secilemez"}
                               >
-                                {selected ? "Secildi" : label}
+                                {visible ? (selected ? "Secildi" : label) : ""}
                               </button>
                             </div>
                           );
