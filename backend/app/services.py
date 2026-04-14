@@ -123,6 +123,15 @@ def available_rooms_for_slots(db: Session, day: date, slot_ids: list[int]) -> li
     if not slot_ids:
         raise HTTPException(status_code=400, detail="En az 1 slot seçmelisiniz.")
 
+    selected_sort_orders = list(
+        db.scalars(select(Slot.sort_order).where(Slot.id.in_(slot_ids)).order_by(Slot.sort_order.asc()))
+    )
+    if not selected_sort_orders:
+        raise HTTPException(status_code=400, detail="Geçerli slot bulunamadı.")
+
+    weekday_map = {0: "M", 1: "T", 2: "W", 3: "TH", 4: "F", 5: "F", 6: "F"}
+    wd = weekday_map.get(day.weekday(), "M")
+
     # Slotların herhangi birinde reserved/locked olan room'ları exclude et.
     # SQLite'da NOT EXISTS ile net ve hızlı.
     sub_reserved = (
@@ -142,7 +151,27 @@ def available_rooms_for_slots(db: Session, day: date, slot_ids: list[int]) -> li
         .where(and_(ReservationLock.day == day, ReservationLock.room_id == Room.id, ReservationLock.slot_id.in_(slot_ids)))
         .exists()
     )
-    q = select(Room).where(and_(~sub_reserved, ~sub_locked)).order_by(Room.exam_capacity.desc(), Room.name.asc())
+    sub_base_schedule = (
+        select(BaseSchedule.id)
+        .where(
+            and_(
+                BaseSchedule.room_id == Room.id,
+                BaseSchedule.weekday == wd,
+                or_(
+                    *[
+                        and_(BaseSchedule.slot_start <= slot_order, BaseSchedule.slot_end >= slot_order)
+                        for slot_order in selected_sort_orders
+                    ]
+                ),
+            )
+        )
+        .exists()
+    )
+    q = (
+        select(Room)
+        .where(and_(~sub_reserved, ~sub_locked, ~sub_base_schedule))
+        .order_by(Room.exam_capacity.desc(), Room.name.asc())
+    )
     return list(db.scalars(q))
 
 
