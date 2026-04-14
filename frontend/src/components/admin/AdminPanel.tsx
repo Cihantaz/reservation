@@ -31,6 +31,12 @@ async function http<T>(path: string, token: string, init?: RequestInit): Promise
   }
 }
 
+function formatCourseLabel(course: Course): string {
+  const code = course.code.trim();
+  const name = course.name.trim();
+  return !name || name.toLowerCase() === code.toLowerCase() ? code : `${code} - ${name}`;
+}
+
 export default function AdminPanel(props: { token: string }) {
   const [tab, setTab] = useState<
     "program" | "siniflar" | "dersler" | "slotlar" | "rezervasyonlar" | "loglar" | "rapor"
@@ -905,7 +911,7 @@ export default function AdminPanel(props: { token: string }) {
               {courses.map((c) => (
                 <div key={c.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
                   <div className="text-xs text-white/80">
-                    <span className="font-semibold">{c.code}</span> <span className="text-white/45">{c.name}</span>
+                    <span className="font-semibold">{formatCourseLabel(c)}</span>
                   </div>
                   <button className="text-rose-200/80 hover:text-rose-200" onClick={() => deleteCourse(c.id)} disabled={loading}>
                     <Trash2 className="h-4 w-4" />
