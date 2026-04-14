@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* küçük, modern dokunuş */
+/* kÃ¼Ã§Ã¼k, modern dokunuÅŸ */
 ::selection {
   background: rgba(56, 189, 248, 0.35);
 }
@@ -16,6 +16,16 @@ body {
   transition:
     background-color 180ms ease,
     color 180ms ease;
+}
+
+.matrix-view .text-xs {
+  font-size: 0.83rem;
+  line-height: 1.2rem;
+}
+
+.matrix-view .text-sm {
+  font-size: 0.96rem;
+  line-height: 1.35rem;
 }
 
 html.theme-light {
@@ -149,3 +159,4 @@ html.theme-light .hover\:bg-white\/15:hover {
 html.theme-light .hover\:bg-rose-600\/30:hover {
   background-color: rgba(251, 113, 133, 0.18) !important;
 }
+

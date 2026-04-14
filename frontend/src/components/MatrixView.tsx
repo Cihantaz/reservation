@@ -6,13 +6,13 @@ import {
   confirmCells as apiConfirmCells,
   courses as apiCourses,
   lockCells as apiLockCells,
-  slots as apiSlots,
-  suggest as apiSuggest
+  slots as apiSlots
 } from "../api";
-import type { AvailabilityMatrix, Course, Slot, SuggestResponse } from "../types";
+import type { AvailabilityMatrix, Course, Room, Slot, SuggestResponse } from "../types";
 import { Badge, Button, Card, Input, Select } from "../ui";
 
 type MatrixStatus = "available" | "locked" | "booked";
+type SuggestionCandidate = { room: Room; capacity: number };
 
 const ALL_STATUSES: MatrixStatus[] = ["available", "locked", "booked"];
 
@@ -34,6 +34,93 @@ function statusLabel(status: MatrixStatus): string {
   if (status === "available") return "Yesil: Uygun";
   if (status === "locked") return "Sari: Kilitli";
   return "Kirmizi: Dolu";
+}
+
+function buildSuggestion(
+  rooms: Room[],
+  requiredCapacity: number,
+  useExamCapacity: boolean,
+  scope: string
+): SuggestResponse {
+  const capacityKey = useExamCapacity ? "exam_capacity" : "class_capacity";
+  const candidates: SuggestionCandidate[] = rooms.map((room) => ({
+    room,
+    capacity: Number(room[capacityKey]) || 0
+  }));
+
+  if (!candidates.length) {
+    throw new Error(`${scope} uygun sinif bulunamadi.`);
+  }
+
+  const single = candidates
+    .filter((candidate) => candidate.capacity >= requiredCapacity)
+    .sort((left, right) => {
+      const leftOver = left.capacity - requiredCapacity;
+      const rightOver = right.capacity - requiredCapacity;
+      if (leftOver !== rightOver) return leftOver - rightOver;
+      if (left.capacity !== right.capacity) return left.capacity - right.capacity;
+      return left.room.name.localeCompare(right.room.name, "tr");
+    });
+
+  if (single.length) {
+    return {
+      required_capacity: requiredCapacity,
+      total_capacity: single[0].capacity,
+      rooms: [{ id: single[0].room.id, name: single[0].room.name, capacity: single[0].capacity }]
+    };
+  }
+
+  let best: SuggestionCandidate[] | null = null;
+  const maxRooms = Math.min(6, candidates.length);
+
+  function score(items: SuggestionCandidate[]) {
+    const total = items.reduce((sum, item) => sum + item.capacity, 0);
+    const names = items.map((item) => item.room.name).sort().join(",");
+    return [items.length, total - requiredCapacity, total, names] as const;
+  }
+
+  function search(startIndex: number, current: SuggestionCandidate[]) {
+    const total = current.reduce((sum, item) => sum + item.capacity, 0);
+    if (total >= requiredCapacity) {
+      if (!best || score(current).join("|") < score(best).join("|")) {
+        best = [...current];
+      }
+      return;
+    }
+    if (current.length === maxRooms) return;
+
+    for (let index = startIndex; index < candidates.length; index += 1) {
+      current.push(candidates[index]);
+      search(index + 1, current);
+      current.pop();
+    }
+  }
+
+  search(0, []);
+
+  if (!best) {
+    const totalCapacity = candidates.reduce((sum, item) => sum + item.capacity, 0);
+    if (totalCapacity < requiredCapacity) {
+      throw new Error(
+        `${requiredCapacity} kisi icin ${scope.toLowerCase()} yeterli kapasite bulunamadi. ` +
+          `Bu kosullarda ulasilabilen toplam uygun kapasite: ${totalCapacity}.`
+      );
+    }
+
+    throw new Error(
+      `${requiredCapacity} kisi icin ${scope.toLowerCase()} uygun sinif kombinasyonu bulunamadi. ` +
+        `Toplam uygun kapasite ${totalCapacity}, ancak bunu karsilayan kombinasyon ` +
+        `oneride kullanilan en fazla 6 sinif siniri icinde olusmuyor.`
+    );
+  }
+
+  const chosen: SuggestionCandidate[] = best as SuggestionCandidate[];
+
+  return {
+    required_capacity: requiredCapacity,
+    total_capacity: chosen.reduce((sum, item) => sum + item.capacity, 0),
+    rooms: chosen.map((item) => ({ id: item.room.id, name: item.room.name, capacity: item.capacity }))
+  };
 }
 
 export default function MatrixView(props: { token: string }) {
@@ -198,11 +285,15 @@ export default function MatrixView(props: { token: string }) {
     return allSlots.filter((slot) => slotIds.includes(slot.id));
   }, [matrix, slotIds]);
 
-  const suggestableRoomIds = useMemo(() => {
+  const suggestableRooms = useMemo(() => {
     const rooms = matrix?.rooms ?? [];
-    if (buildingFilter.size === 0) return rooms.map((room) => room.id);
-    return rooms.filter((room) => buildingFilter.has(room.building || "A")).map((room) => room.id);
-  }, [buildingFilter, matrix]);
+    return rooms.filter((room) => {
+      if (buildingFilter.size !== 0 && !buildingFilter.has(room.building || "A")) {
+        return false;
+      }
+      return slotIds.every((slotId) => (cellMap.get(`${room.id}:${slotId}`) ?? "available") === "available");
+    });
+  }, [buildingFilter, cellMap, matrix, slotIds]);
 
   const filteredRooms = useMemo(() => {
     let next = matrix?.rooms ?? [];
@@ -291,22 +382,15 @@ export default function MatrixView(props: { token: string }) {
       setError("En az 1 slot secmelisiniz.");
       return;
     }
-    if (suggestableRoomIds.length === 0) {
-      setError("Secili sinif filtresinde onerilecek derslik kalmadi.");
+    if (suggestableRooms.length === 0) {
+      setError("Secilen slotlarda ve secili sinif filtresinde uygun derslik kalmadi.");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await apiSuggest(props.token, {
-        day,
-        slot_ids: slotIds,
-        required_capacity: cap,
-        use_exam_capacity: useExamCapacity,
-        room_ids: suggestableRoomIds,
-        purpose,
-        course_id: courseId ? Number(courseId) : null
-      });
+      const scope = buildingFilter.size === 0 ? "Secilen slotlarda" : "Secilen slotlarda ve secili sinif/bina filtresinde";
+      const res = buildSuggestion(suggestableRooms, cap, useExamCapacity, scope);
       setSuggestion(res);
 
       const next = new Set<string>();
@@ -316,9 +400,8 @@ export default function MatrixView(props: { token: string }) {
         }
       }
       setSelectedCells(next);
-      await refreshMatrix();
     } catch (e) {
-      if (e instanceof ApiError) setError(e.message);
+      if (e instanceof ApiError || e instanceof Error) setError(e.message);
       else setError("Bir hata olustu.");
     } finally {
       setLoading(false);
@@ -389,7 +472,7 @@ export default function MatrixView(props: { token: string }) {
   }
 
   return (
-    <div className="w-full space-y-4">
+    <div className="matrix-view w-full space-y-4">
       <Card className="p-4 lg:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="grid flex-1 gap-2 md:grid-cols-2 xl:grid-cols-4">

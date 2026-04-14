@@ -3,7 +3,8 @@ from datetime import datetime, time, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import SessionToken, Slot, User, UserRole
+from .models import Room, SessionToken, Slot, User, UserRole
+from .schedule_import import derive_exam_capacity
 from .settings import settings
 
 
@@ -64,5 +65,15 @@ def seed_if_empty(db: Session) -> None:
                 )
             )
         print(f"[SEED] {len(DEFAULT_SLOTS)} default slots created")
+
+    normalized_rooms = 0
+    for room in db.scalars(select(Room)).all():
+        expected_exam_capacity = derive_exam_capacity(room.building, room.class_capacity)
+        if room.exam_capacity != expected_exam_capacity:
+            room.exam_capacity = expected_exam_capacity
+            normalized_rooms += 1
+
+    if normalized_rooms:
+        print(f"[SEED] {normalized_rooms} room exam capacities normalized")
 
     db.commit()
