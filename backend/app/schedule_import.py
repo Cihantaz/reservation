@@ -1,10 +1,12 @@
 import csv
 import io
 import re
+from decimal import Decimal
 from dataclasses import dataclass
 from typing import Dict, Optional
 
 import pandas as pd
+from openpyxl import load_workbook
 
 
 VALID_WEEKDAYS = {"M", "T", "W", "TH", "F"}
@@ -27,16 +29,122 @@ def _split_csv(cell: str) -> list[str]:
 
 _TIME_TOKEN_RE = re.compile(r"^(TH|M|T|W|F)\s*([1-9]|1[0-2])$", re.IGNORECASE)
 
-_ROOM_TOKEN_RE = re.compile(r"^([A-ZÃ‡ÄÄ°Ã–ÅÃœ]+)\s*-?\s*(\d+)$", re.IGNORECASE)
+_ROOM_TOKEN_RE = re.compile(r"^([A-ZÇĞİÖŞÜ]+)\s*-?\s*(\d+)$", re.IGNORECASE)
+
+
+_MOJIBAKE_REPLACEMENTS = {
+    "Ã‡": "Ç",
+    "Ã§": "ç",
+    "Ä": "Ğ",
+    "ÄŸ": "ğ",
+    "Ä°": "İ",
+    "Ä±": "ı",
+    "Ã–": "Ö",
+    "Ã¶": "ö",
+    "Å": "Ş",
+    "ÅŸ": "ş",
+    "Ãœ": "Ü",
+    "Ã¼": "ü",
+    "Â": "",
+    "�": "",
+}
+
+
+def _repair_text(value: object) -> str:
+    text = "" if value is None else str(value)
+    for broken, fixed in _MOJIBAKE_REPLACEMENTS.items():
+        text = text.replace(broken, fixed)
+    return text.strip()
+
+
+def _normalize_label(value: object) -> str:
+    text = _repair_text(value).lower()
+    text = text.replace("i̇", "i")
+    for src, dst in {
+        "ı": "i",
+        "ö": "o",
+        "ü": "u",
+        "ş": "s",
+        "ğ": "g",
+        "ç": "c",
+    }.items():
+        text = text.replace(src, dst)
+    return re.sub(r"[^a-z0-9()]+", "", text)
 
 
 def _find_col(columns: list[str], candidates: list[str]) -> Optional[str]:
-    colset = {str(c): str(c) for c in columns}
+    colset = {_normalize_label(c): str(c) for c in columns if _normalize_label(c)}
     for cand in candidates:
-        for col in colset.keys():
-            if str(col).strip().lower() == cand.strip().lower():
-                return col
+        match = colset.get(_normalize_label(cand))
+        if match is not None:
+            return match
     return None
+
+
+def _find_col_index(columns: list[str], candidates: list[str]) -> Optional[int]:
+    target = _find_col(columns, candidates)
+    if target is None:
+        return None
+    for idx, col in enumerate(columns):
+        if str(col) == target:
+            return idx
+    return None
+
+
+def _error(row: Optional[int], message: str, detail: str = "") -> dict:
+    payload = {"row": row, "message": message}
+    if detail:
+        payload["detail"] = detail
+    return payload
+
+
+def _columns_detail(columns: list[object]) -> str:
+    names = [_repair_text(col) for col in columns if _repair_text(col)]
+    return f"Bulunan kolonlar: {', '.join(names)}" if names else "Dosyada okunabilen kolon bulunamadı."
+
+
+def _row_detail(values: dict[str, object]) -> str:
+    parts = []
+    for key, value in values.items():
+        text = _repair_text(value)
+        if text:
+            parts.append(f"{key}='{text}'")
+    return "Veri: " + ", ".join(parts) if parts else ""
+
+
+def _cell_text(cell) -> str:
+    value = cell.value
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if isinstance(value, Decimal) and value == int(value):
+        value = int(value)
+    return _repair_text(value)
+
+
+def _room_number_text(cell) -> str:
+    value = cell.value
+    if value is None:
+        return ""
+
+    if isinstance(value, Decimal):
+        value = int(value) if value == int(value) else float(value)
+
+    if isinstance(value, int):
+        fmt = str(cell.number_format or "").strip()
+        if re.fullmatch(r"0+", fmt):
+            return f"{value:0{len(fmt)}d}"
+        return str(value)
+
+    if isinstance(value, float):
+        if value.is_integer():
+            int_value = int(value)
+            fmt = str(cell.number_format or "").strip()
+            if re.fullmatch(r"0+", fmt):
+                return f"{int_value:0{len(fmt)}d}"
+            return str(int_value)
+        return _repair_text(value)
+
+    return _repair_text(value)
 
 
 def derive_exam_capacity(building: str, class_capacity: int) -> int:
@@ -47,16 +155,16 @@ def derive_exam_capacity(building: str, class_capacity: int) -> int:
 
 def _normalize_room_code(token: str, available_rooms: Optional[Dict[str, str]] = None) -> list[str]:
     """
-    Excel'deki sÄ±nÄ±f hÃ¼creleri normalize et ve DB'deki sÄ±nÄ±flarla eÅŸle:
+    Excel'deki sınıf hücreleri normalize et ve DB'deki sınıflarla eşle:
     
     INPUT FORMATS (Excel'den gelebilecek):
-      - A203 â†’ A-203 (format standardization)
-      - DMF-114 â†’ DMF-114 (already normalized)
-      - "A413 A317" â†’ [A-413, A-317] (multiple classes same time)
-      - dmf-102 â†’ DMF-102 (case normalization via fuzzy matching)
+      - A203 → A-203 (format standardization)
+      - DMF-114 → DMF-114 (already normalized)
+      - "A413 A317" → [A-413, A-317] (multiple classes same time)
+      - dmf-102 → DMF-102 (case normalization via fuzzy matching)
     
     MATCHING STRATEGY (FUZZY & CASE-INSENSITIVE):
-      1. Reformat input: A203 â†’ A-203 (standard Bina-DerslikNum format)
+      1. Reformat input: A203 → A-203 (standard Bina-DerslikNum format)
       2. Check exact match in DB (A-203 == A-203)
       3. Fuzzy match: case-insensitive & hyphen-tolerant (dmf-102 matches DMF-102)
       4. If not found: return normalized form (error will be caught in preview)
@@ -76,7 +184,7 @@ def _normalize_room_code(token: str, available_rooms: Optional[Dict[str, str]] =
     for p in parts:
         normalized = None
         
-        # STEP 1: Standardize format using regex (A203 â†’ A-203)
+        # STEP 1: Standardize format using regex (A203 → A-203)
         m = _ROOM_TOKEN_RE.match(p.replace(" ", ""))
         if m:
             b = m.group(1).upper()  # Building (DMF, A, B, etc.)
@@ -102,7 +210,7 @@ def _normalize_room_code(token: str, available_rooms: Optional[Dict[str, str]] =
                     out.append(db_name)  # Use actual DB name for consistency
                     break
             else:
-                # Not found â†’ append normalized form (preview validation will flag error)
+                # Not found → append normalized form (preview validation will flag error)
                 out.append(normalized)
         else:
             # No DB provided, just append normalized form
@@ -113,30 +221,30 @@ def _normalize_room_code(token: str, available_rooms: Optional[Dict[str, str]] =
 
 def parse_schedule_excel(content: bytes, available_rooms: Optional[Dict[str, str]] = None) -> dict:
     """
-    Excel kolonlarÄ±:
+    Excel kolonları:
       - Ders Kodu
-      - SÄ±nÄ±f(lar)
+      - Sınıf(lar)
       - Ders Saati
 
     Kurallar:
-      - SÄ±nÄ±f(lar) ve Ders Saati virgÃ¼lle ayrÄ±lmÄ±ÅŸsa, array'ler ZIP edilerek eÅŸlenir.
-        Ã–rn: A203, A204 | T4, T5  => (A203,T4) + (A204,T5)
-      - EÄŸer biri 1 eleman, diÄŸeri N eleman ise 1 eleman tÃ¼mÃ¼ne uygulanÄ±r.
-      - Ders Saati token formatÄ±: M1..M12, T1..T12, W1..W12, TH1..TH12, F1..F12
-      - available_rooms: {room_name: room_id} dict, fuzzy matching iÃ§in kullanÄ±lÄ±r
+      - Sınıf(lar) ve Ders Saati virgülle ayrılmışsa, array'ler ZIP edilerek eşlenir.
+        Örn: A203, A204 | T4, T5  => (A203,T4) + (A204,T5)
+      - Eğer biri 1 eleman, diğeri N eleman ise 1 eleman tümüne uygulanır.
+      - Ders Saati token formatı: M1..M12, T1..T12, W1..W12, TH1..TH12, F1..F12
+      - available_rooms: {room_name: room_id} dict, fuzzy matching için kullanılır
     """
     try:
         df = pd.read_excel(io.BytesIO(content))
     except Exception as e:
         return {
             "ok": False,
-            "errors": [{"row": None, "message": f"Excel parse hatasÄ±: {str(e)}"}],
+            "errors": [{"row": None, "message": f"Excel parse hatası: {str(e)}"}],
             "items": [],
             "total_items": 0,
         }
 
     col_course = _find_col(list(df.columns), ["Ders Kodu"])
-    col_rooms = _find_col(list(df.columns), ["SÄ±nÄ±f(lar)", "S\u0131n\u0131f(lar)", "S\uFFFdn\uFFFDf(lar)"])
+    col_rooms = _find_col(list(df.columns), ["Sınıf(lar)", "S\u0131n\u0131f(lar)", "S\uFFFdn\uFFFDf(lar)"])
     col_time = _find_col(list(df.columns), ["Ders Saati"])
     col_email = _find_col(list(df.columns), ["E-Posta", "Eposta", "E-mail", "Email"])
 
@@ -144,13 +252,13 @@ def parse_schedule_excel(content: bytes, available_rooms: Optional[Dict[str, str
     if not col_course:
         missing.append("Ders Kodu")
     if not col_rooms:
-        missing.append("SÄ±nÄ±f(lar)")
+        missing.append("Sınıf(lar)")
     if not col_time:
         missing.append("Ders Saati")
     if missing:
         return {
             "ok": False,
-            "errors": [{"row": None, "message": f"Eksik kolon(lar): {', '.join(missing)}"}],
+            "errors": [_error(None, f"Eksik kolon(lar): {', '.join(missing)}", _columns_detail(list(df.columns)))],
             "items": [],
             "total_items": 0,
         }
@@ -164,22 +272,30 @@ def parse_schedule_excel(content: bytes, available_rooms: Optional[Dict[str, str
         rooms_raw = str(row.get(col_rooms, "")).strip()
         times_raw = str(row.get(col_time, "")).strip()
         actor_email = str(row.get(col_email, "")).strip().lower() if col_email else ""
+        detail = _row_detail(
+            {
+                "Ders Kodu": course_code,
+                "Sınıf(lar)": rooms_raw,
+                "Ders Saati": times_raw,
+                "E-Posta": actor_email,
+            }
+        )
 
         if not course_code:
-            errors.append({"row": excel_row, "message": "Ders Kodu boÅŸ olamaz."})
+            errors.append(_error(excel_row, "Ders Kodu boş olamaz.", detail))
             continue
         if not rooms_raw:
-            errors.append({"row": excel_row, "message": "SÄ±nÄ±f(lar) boÅŸ olamaz."})
+            errors.append(_error(excel_row, "Sınıf(lar) boş olamaz.", detail))
             continue
         if not times_raw:
-            errors.append({"row": excel_row, "message": "Ders Saati boÅŸ olamaz."})
+            errors.append(_error(excel_row, "Ders Saati boş olamaz.", detail))
             continue
 
         rooms = _split_csv(rooms_raw)
         times = _split_csv(times_raw)
 
         if not rooms or not times:
-            errors.append({"row": excel_row, "message": "SÄ±nÄ±f(lar) veya Ders Saati parse edilemedi."})
+            errors.append(_error(excel_row, "Sınıf(lar) veya Ders Saati parse edilemedi.", detail))
             continue
 
         pairs: list[tuple[str, str]] = []
@@ -191,25 +307,26 @@ def parse_schedule_excel(content: bytes, available_rooms: Optional[Dict[str, str
             pairs = [(r, times[0]) for r in rooms]
         else:
             errors.append(
-                {
-                    "row": excel_row,
-                    "message": f"SÄ±nÄ±f(lar) ve Ders Saati eÅŸleÅŸmiyor (zip edilemedi). SÄ±nÄ±f sayÄ±sÄ±={len(rooms)}, saat sayÄ±sÄ±={len(times)}.",
-                }
+                _error(
+                    excel_row,
+                    f"Sınıf(lar) ve Ders Saati eşleşmiyor (zip edilemedi). Sınıf sayısı={len(rooms)}, saat sayısı={len(times)}.",
+                    detail,
+                )
             )
             continue
 
         for (room_name, token) in pairs:
             m = _TIME_TOKEN_RE.match(token.replace(" ", ""))
             if not m:
-                errors.append({"row": excel_row, "message": f"Ders Saati formatÄ± hatalÄ±: '{token}' (Ã¶rn: T4, TH10)."})
+                errors.append(_error(excel_row, f"Ders Saati formatı hatalı: '{token}' (örn: T4, TH10).", detail))
                 continue
             wd = m.group(1).upper()
             slot = int(m.group(2))
             if wd not in VALID_WEEKDAYS:
-                errors.append({"row": excel_row, "message": f"GeÃ§ersiz gÃ¼n: '{wd}'"})
+                errors.append(_error(excel_row, f"Geçersiz gün: '{wd}'", detail))
                 continue
 
-            # "A413 A317" gibi Ã§oklu sÄ±nÄ±f varsa, aynÄ± saat iÃ§in ayrÄ± kayÄ±t Ã¼ret
+            # "A413 A317" gibi çoklu sınıf varsa, aynı saat için ayrı kayıt üret
             room_codes = _normalize_room_code(room_name, available_rooms=available_rooms)
             for rc in room_codes:
                 items.append(
@@ -228,37 +345,49 @@ def parse_schedule_excel(content: bytes, available_rooms: Optional[Dict[str, str
 
 def parse_rooms_excel(content: bytes) -> dict:
     """
-    Excel kolonlarÄ±:
+    Excel kolonları:
       - Bina
-      - Derslik NumarasÄ±
-      - Ã–zellik
+      - Derslik Numarası
+      - Özellik
       - Kapasite
 
-    Ä°ÅŸ kurallarÄ±:
-      - room_code = f\"{Bina}-{Derslik NumarasÄ±}\" (Ã¶rn DMF-114) => Room.name
-      - SÄ±nav Kapasitesi = floor(Kapasite / 2)
-      - DK binasÄ±nda sÄ±nav kapasitesi sabit 25
-      - UPSERT: room_code varsa update, yoksa insert (save endpointâ€™inde)
+    İş kuralları:
+      - room_code = f\"{Bina}-{Derslik Numarası}\" (örn DMF-114) => Room.name
+      - Sınav Kapasitesi = floor(Kapasite / 2)
+      - DK binasında sınav kapasitesi sabit 25
+      - UPSERT: room_code varsa update, yoksa insert (save endpoint’inde)
     """
-    df = pd.read_excel(io.BytesIO(content))
-    col_building = _find_col(list(df.columns), ["Bina"])
-    col_number = _find_col(list(df.columns), ["Derslik NumarasÄ±", "Derslik"])
-    col_feature = _find_col(list(df.columns), ["Ã–zellik", "\uFFFdzellik", "Ozellik"])
-    col_capacity = _find_col(list(df.columns), ["Kapasite"])
+    try:
+        wb = load_workbook(io.BytesIO(content), data_only=True)
+    except Exception as e:
+        return {
+            "ok": False,
+            "errors": [_error(None, f"Excel parse hatası: {str(e)}")],
+            "items": [],
+            "total_items": 0,
+        }
+
+    ws = wb[wb.sheetnames[0]]
+    headers = [_cell_text(ws.cell(1, col_idx)) for col_idx in range(1, ws.max_column + 1)]
+
+    col_building = _find_col_index(headers, ["Bina"])
+    col_number = _find_col_index(headers, ["Derslik Numarası", "Derslik Numarasi", "Derslik"])
+    col_feature = _find_col_index(headers, ["Özellik", "Ozellik"])
+    col_capacity = _find_col_index(headers, ["Kapasite"])
 
     missing = []
-    if not col_building:
+    if col_building is None:
         missing.append("Bina")
-    if not col_number:
+    if col_number is None:
         missing.append("Derslik")
-    if not col_feature:
-        missing.append("Ã–zellik")
-    if not col_capacity:
+    if col_feature is None:
+        missing.append("Özellik")
+    if col_capacity is None:
         missing.append("Kapasite")
     if missing:
         return {
             "ok": False,
-            "errors": [{"row": None, "message": f"Eksik kolon(lar): {', '.join(missing)}"}],
+            "errors": [_error(None, f"Eksik kolon(lar): {', '.join(missing)}", _columns_detail(headers))],
             "items": [],
             "total_items": 0,
         }
@@ -266,28 +395,40 @@ def parse_rooms_excel(content: bytes) -> dict:
     items: list[dict] = []
     errors: list[dict] = []
 
-    for idx, row in df.iterrows():
-        excel_row = int(idx) + 2
-        building = str(row.get(col_building, "")).strip().upper()
-        number = str(row.get(col_number, "")).strip()
-        feature = str(row.get(col_feature, "")).strip()
-        cap_raw = row.get(col_capacity, "")
+    for excel_row in range(2, ws.max_row + 1):
+        building_cell = ws.cell(excel_row, col_building + 1)
+        number_cell = ws.cell(excel_row, col_number + 1)
+        feature_cell = ws.cell(excel_row, col_feature + 1)
+        capacity_cell = ws.cell(excel_row, col_capacity + 1)
+
+        building = _cell_text(building_cell).upper()
+        number = _room_number_text(number_cell)
+        feature = _cell_text(feature_cell)
+        cap_raw = capacity_cell.value
+        detail = _row_detail(
+            {
+                "Bina": building,
+                "Derslik": number,
+                "Özellik": feature,
+                "Kapasite": cap_raw,
+            }
+        )
 
         if not building:
-            errors.append({"row": excel_row, "message": "Bina boÅŸ olamaz."})
+            errors.append(_error(excel_row, "Bina boş olamaz.", detail))
             continue
         if not number:
-            errors.append({"row": excel_row, "message": "Derslik NumarasÄ± boÅŸ olamaz."})
+            errors.append(_error(excel_row, "Derslik Numarası boş olamaz.", detail))
             continue
 
         try:
             cap = int(cap_raw)
         except Exception:
-            errors.append({"row": excel_row, "message": f"Kapasite sayÄ±sal olmalÄ±: '{cap_raw}'"})
+            errors.append(_error(excel_row, f"Kapasite sayısal olmalı: '{cap_raw}'", detail))
             continue
 
         if cap < 0:
-            errors.append({"row": excel_row, "message": "Kapasite negatif olamaz."})
+            errors.append(_error(excel_row, "Kapasite negatif olamaz.", detail))
             continue
 
         room_code = f"{building}-{number}"
@@ -310,24 +451,24 @@ def parse_rooms_excel(content: bytes) -> dict:
 def parse_schedule_csv(content: bytes, available_rooms: Optional[Dict[str, str]] = None) -> dict:
     """
     CSV/TSV format'da ders takvimi parse et.
-    Tab (\\t) veya virgÃ¼l (,) ile ayrÄ±lmÄ±ÅŸ veri kabul eder.
+    Tab (\\t) veya virgül (,) ile ayrılmış veri kabul eder.
     
     Format:
-      Ders Kodu\tSÄ±nÄ±f(lar)\tDers Saati\t[E-Posta (opsiyonel)]
+      Ders Kodu\tSınıf(lar)\tDers Saati\t[E-Posta (opsiyonel)]
       MATH101\tA-203\tM4
       PHYS201\tB-114, B-115\tT5, T6
       
-    available_rooms: {room_name: room_id} dict, fuzzy matching iÃ§in kullanÄ±lÄ±r
+    available_rooms: {room_name: room_id} dict, fuzzy matching için kullanılır
     """
     try:
         content_str = content.decode('utf-8', errors='replace').strip()
         
-        # Delimiter detect: tab veya virgÃ¼l
+        # Delimiter detect: tab veya virgül
         lines = content_str.split('\n')
         if not lines:
             return {
                 "ok": False,
-                "errors": [{"row": None, "message": "CSV dosyasÄ± boÅŸ."}],
+                "errors": [{"row": None, "message": "CSV dosyası boş."}],
                 "items": [],
                 "total_items": 0,
             }
@@ -342,7 +483,7 @@ def parse_schedule_csv(content: bytes, available_rooms: Optional[Dict[str, str]]
         if not rows:
             return {
                 "ok": False,
-                "errors": [{"row": None, "message": "CSV parse hatasÄ±."}],
+                "errors": [{"row": None, "message": "CSV parse hatası."}],
                 "items": [],
                 "total_items": 0,
             }
@@ -358,7 +499,7 @@ def parse_schedule_csv(content: bytes, available_rooms: Optional[Dict[str, str]]
         for i, h in enumerate(headers):
             if "ders kodu" in h:
                 col_idx_course = i
-            elif "sÄ±nÄ±f" in h or "sinif" in h:
+            elif "sınıf" in h or "sinif" in h:
                 col_idx_rooms = i
             elif "ders saati" in h or "saat" in h:
                 col_idx_time = i
@@ -369,7 +510,7 @@ def parse_schedule_csv(content: bytes, available_rooms: Optional[Dict[str, str]]
         if col_idx_course is None:
             missing.append("Ders Kodu")
         if col_idx_rooms is None:
-            missing.append("SÄ±nÄ±f(lar)")
+            missing.append("Sınıf(lar)")
         if col_idx_time is None:
             missing.append("Ders Saati")
         
@@ -395,20 +536,20 @@ def parse_schedule_csv(content: bytes, available_rooms: Optional[Dict[str, str]]
             actor_email = row[col_idx_email].strip().lower() if col_idx_email and col_idx_email < len(row) else ""
             
             if not course_code:
-                errors.append({"row": row_idx, "message": "Ders Kodu boÅŸ olamaz."})
+                errors.append({"row": row_idx, "message": "Ders Kodu boş olamaz."})
                 continue
             if not rooms_raw:
-                errors.append({"row": row_idx, "message": "SÄ±nÄ±f(lar) boÅŸ olamaz."})
+                errors.append({"row": row_idx, "message": "Sınıf(lar) boş olamaz."})
                 continue
             if not times_raw:
-                errors.append({"row": row_idx, "message": "Ders Saati boÅŸ olamaz."})
+                errors.append({"row": row_idx, "message": "Ders Saati boş olamaz."})
                 continue
             
             rooms = _split_csv(rooms_raw)
             times = _split_csv(times_raw)
             
             if not rooms or not times:
-                errors.append({"row": row_idx, "message": "SÄ±nÄ±f(lar) veya Ders Saati parse edilemedi."})
+                errors.append({"row": row_idx, "message": "Sınıf(lar) veya Ders Saati parse edilemedi."})
                 continue
             
             # Pairing logic
@@ -422,21 +563,21 @@ def parse_schedule_csv(content: bytes, available_rooms: Optional[Dict[str, str]]
             else:
                 errors.append({
                     "row": row_idx,
-                    "message": f"SÄ±nÄ±f(lar) ve Ders Saati eÅŸleÅŸmiyor. SÄ±nÄ±f={len(rooms)}, saat={len(times)}.",
+                    "message": f"Sınıf(lar) ve Ders Saati eşleşmiyor. Sınıf={len(rooms)}, saat={len(times)}.",
                 })
                 continue
             
             for (room_name, token) in pairs:
                 m = _TIME_TOKEN_RE.match(token.replace(" ", ""))
                 if not m:
-                    errors.append({"row": row_idx, "message": f"Ders Saati formatÄ± hatalÄ±: '{token}' (Ã¶rn: M4, TH10)."})
+                    errors.append({"row": row_idx, "message": f"Ders Saati formatı hatalı: '{token}' (örn: M4, TH10)."})
                     continue
                 
                 wd = m.group(1).upper()
                 slot = int(m.group(2))
                 
                 if wd not in VALID_WEEKDAYS:
-                    errors.append({"row": row_idx, "message": f"GeÃ§ersiz gÃ¼n: '{wd}'"})
+                    errors.append({"row": row_idx, "message": f"Geçersiz gün: '{wd}'"})
                     continue
                 
                 room_codes = _normalize_room_code(room_name, available_rooms=available_rooms)
@@ -455,7 +596,8 @@ def parse_schedule_csv(content: bytes, available_rooms: Optional[Dict[str, str]]
     except Exception as e:
         return {
             "ok": False,
-            "errors": [{"row": None, "message": f"CSV parse hatasÄ±: {str(e)}"}],
+            "errors": [{"row": None, "message": f"CSV parse hatası: {str(e)}"}],
             "items": [],
             "total_items": 0,
         }
+
