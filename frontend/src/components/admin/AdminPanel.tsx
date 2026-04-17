@@ -37,6 +37,10 @@ function formatCourseLabel(course: Course): string {
   return !name || name.toLowerCase() === code.toLowerCase() ? code : `${code} - ${name}`;
 }
 
+function normalizedExamCapacity(building: string, fallback: number): number {
+  return building.trim().toUpperCase() === "DK" ? 25 : fallback;
+}
+
 export default function AdminPanel(props: { token: string }) {
   const [tab, setTab] = useState<
     "program" | "siniflar" | "dersler" | "slotlar" | "rezervasyonlar" | "loglar" | "rapor"
@@ -55,7 +59,7 @@ export default function AdminPanel(props: { token: string }) {
     ok: boolean;
     total_items: number;
     items: { course_code: string; room_name: string; weekday: string; slot: number; source_row?: number }[];
-    errors: { row?: number | null; message: string }[];
+    errors: { row?: number | null; message: string; detail?: string }[];
     warnings: { row?: number | null; message: string }[];
     mismatches?: { course_code: string; room_name: string; weekday: string; slot: number; source_row: number | string; reason: string }[];
   }>(null);
@@ -67,7 +71,7 @@ export default function AdminPanel(props: { token: string }) {
     ok: boolean;
     total_items: number;
     items: { room_code: string; building: string; room_number: string; feature: string; class_capacity: number; exam_capacity: number; source_row?: number }[];
-    errors: { row?: number | null; message: string }[];
+    errors: { row?: number | null; message: string; detail?: string }[];
   }>(null);
 
   // Room form (manuel ekle/düzenle)
@@ -294,7 +298,7 @@ export default function AdminPanel(props: { token: string }) {
         room_number: roomNumber,
         feature: roomFeature,
         class_capacity: Number(roomClassCap) || 0,
-        exam_capacity: Number(roomExamCap) || 0
+        exam_capacity: normalizedExamCapacity(roomBuilding, Number(roomExamCap) || 0)
       };
 
       if (roomIdEditing) {
@@ -663,7 +667,10 @@ export default function AdminPanel(props: { token: string }) {
                 ) : (
                   preview.errors.map((er, i) => (
                     <div key={i} className="rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-                      <span className="font-semibold">{er.row ? `Satır ${er.row}` : "Genel"}:</span> {er.message}
+                      <div>
+                        <span className="font-semibold">{er.row ? `Satır ${er.row}` : "Genel"}:</span> {er.message}
+                      </div>
+                      {er.detail ? <div className="mt-1 text-[11px] text-rose-100/80">{er.detail}</div> : null}
                     </div>
                   ))
                 )}
@@ -730,7 +737,15 @@ export default function AdminPanel(props: { token: string }) {
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-white/60">Sınav Kapasitesi</div>
-                  <Input value={roomExamCap} onChange={setRoomExamCap} type="number" />
+                  <Input
+                    value={roomBuilding.trim().toUpperCase() === "DK" ? "25" : roomExamCap}
+                    onChange={setRoomExamCap}
+                    type="number"
+                    disabled={roomBuilding.trim().toUpperCase() === "DK"}
+                  />
+                  {roomBuilding.trim().toUpperCase() === "DK" ? (
+                    <div className="mt-1 text-[11px] text-white/50">DK dersliklerinde sınav kapasitesi sabit 25 uygulanır.</div>
+                  ) : null}
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -792,7 +807,7 @@ export default function AdminPanel(props: { token: string }) {
               >
                 <div className="text-sm font-semibold">Dosyayı buraya sürükleyip bırakın</div>
                 <div className="mt-1 text-xs text-white/55">room_code = Bina-DerslikNo (örn: DMF-114)</div>
-                <div className="mt-1 text-xs text-white/45">Sınav Kapasitesi otomatik: floor(Kapasite/2)</div>
+                <div className="mt-1 text-xs text-white/45">Sınav Kapasitesi otomatik: genel sınıflarda floor(Kapasite/2), DK dersliklerinde sabit 25</div>
               </div>
 
               {roomsUploading ? <div className="mt-4 text-sm text-white/60">İşleniyor…</div> : null}
@@ -830,7 +845,10 @@ export default function AdminPanel(props: { token: string }) {
                     <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
                       {roomsPreview.errors.map((er, i) => (
                         <div key={i} className="rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
-                          <span className="font-semibold">{er.row ? `Satır ${er.row}` : "Genel"}:</span> {er.message}
+                          <div>
+                            <span className="font-semibold">{er.row ? `Satır ${er.row}` : "Genel"}:</span> {er.message}
+                          </div>
+                          {er.detail ? <div className="mt-1 text-[11px] text-rose-100/80">{er.detail}</div> : null}
                         </div>
                       ))}
                       <div className="text-xs text-white/50">Toplam hata: {roomsPreview.errors.length}</div>
