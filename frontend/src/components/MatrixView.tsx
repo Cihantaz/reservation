@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Lock, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Lock, Search, Sparkles } from "lucide-react";
 import {
   ApiError,
   availability as apiAvailability,
   confirmCells as apiConfirmCells,
   courses as apiCourses,
   lockCells as apiLockCells,
+  suggest as apiSuggest,
   slots as apiSlots
 } from "../api";
 import type { AvailabilityMatrix, Course, Room, Slot, SuggestResponse } from "../types";
 import { Badge, Button, Card, Input, Select } from "../ui";
 
 type MatrixStatus = "available" | "locked" | "booked";
-type SuggestionCandidate = { room: Room; capacity: number };
 
 const ALL_STATUSES: MatrixStatus[] = ["available", "locked", "booked"];
 
@@ -36,91 +36,12 @@ function statusLabel(status: MatrixStatus): string {
   return "Kirmizi: Dolu";
 }
 
-function buildSuggestion(
-  rooms: Room[],
-  requiredCapacity: number,
-  useExamCapacity: boolean,
-  scope: string
-): SuggestResponse {
-  const capacityKey = useExamCapacity ? "exam_capacity" : "class_capacity";
-  const candidates: SuggestionCandidate[] = rooms.map((room) => ({
-    room,
-    capacity: Number(room[capacityKey]) || 0
-  }));
-
-  if (!candidates.length) {
-    throw new Error(`${scope} uygun sinif bulunamadi.`);
-  }
-
-  const single = candidates
-    .filter((candidate) => candidate.capacity >= requiredCapacity)
-    .sort((left, right) => {
-      const leftOver = left.capacity - requiredCapacity;
-      const rightOver = right.capacity - requiredCapacity;
-      if (leftOver !== rightOver) return leftOver - rightOver;
-      if (left.capacity !== right.capacity) return left.capacity - right.capacity;
-      return left.room.name.localeCompare(right.room.name, "tr");
-    });
-
-  if (single.length) {
-    return {
-      required_capacity: requiredCapacity,
-      total_capacity: single[0].capacity,
-      rooms: [{ id: single[0].room.id, name: single[0].room.name, capacity: single[0].capacity }]
-    };
-  }
-
-  let best: SuggestionCandidate[] | null = null;
-  const maxRooms = Math.min(6, candidates.length);
-
-  function score(items: SuggestionCandidate[]) {
-    const total = items.reduce((sum, item) => sum + item.capacity, 0);
-    const names = items.map((item) => item.room.name).sort().join(",");
-    return [items.length, total - requiredCapacity, total, names] as const;
-  }
-
-  function search(startIndex: number, current: SuggestionCandidate[]) {
-    const total = current.reduce((sum, item) => sum + item.capacity, 0);
-    if (total >= requiredCapacity) {
-      if (!best || score(current).join("|") < score(best).join("|")) {
-        best = [...current];
-      }
-      return;
-    }
-    if (current.length === maxRooms) return;
-
-    for (let index = startIndex; index < candidates.length; index += 1) {
-      current.push(candidates[index]);
-      search(index + 1, current);
-      current.pop();
-    }
-  }
-
-  search(0, []);
-
-  if (!best) {
-    const totalCapacity = candidates.reduce((sum, item) => sum + item.capacity, 0);
-    if (totalCapacity < requiredCapacity) {
-      throw new Error(
-        `${requiredCapacity} kisi icin ${scope.toLowerCase()} yeterli kapasite bulunamadi. ` +
-          `Bu kosullarda ulasilabilen toplam uygun kapasite: ${totalCapacity}.`
-      );
-    }
-
-    throw new Error(
-      `${requiredCapacity} kisi icin ${scope.toLowerCase()} uygun sinif kombinasyonu bulunamadi. ` +
-        `Toplam uygun kapasite ${totalCapacity}, ancak bunu karsilayan kombinasyon ` +
-        `oneride kullanilan en fazla 6 sinif siniri icinde olusmuyor.`
-    );
-  }
-
-  const chosen: SuggestionCandidate[] = best as SuggestionCandidate[];
-
-  return {
-    required_capacity: requiredCapacity,
-    total_capacity: chosen.reduce((sum, item) => sum + item.capacity, 0),
-    rooms: chosen.map((item) => ({ id: item.room.id, name: item.room.name, capacity: item.capacity }))
-  };
+function matchesRoomSearch(room: Room, roomQuery: string): boolean {
+  const query = roomQuery.trim().toLocaleLowerCase("tr-TR");
+  if (!query) return true;
+  return [room.name, room.building, room.room_number, room.feature]
+    .filter(Boolean)
+    .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(query));
 }
 
 export default function MatrixView(props: { token: string }) {
@@ -140,6 +61,7 @@ export default function MatrixView(props: { token: string }) {
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<string>("");
   const [buildingFilter, setBuildingFilter] = useState<Set<string>>(new Set());
+  const [roomQuery, setRoomQuery] = useState<string>("");
   const [visibleStatuses, setVisibleStatuses] = useState<Set<MatrixStatus>>(new Set(ALL_STATUSES));
   const [matrixScrollWidth, setMatrixScrollWidth] = useState(0);
   const [matrixViewportWidth, setMatrixViewportWidth] = useState(0);
@@ -210,7 +132,7 @@ export default function MatrixView(props: { token: string }) {
     }
 
     return () => observer.disconnect();
-  }, [matrix, buildingFilter, visibleStatuses, slotIds]);
+  }, [matrix, buildingFilter, roomQuery, visibleStatuses, slotIds]);
 
   function syncTopScroll() {
     const top = topScrollbarRef.current;
@@ -285,22 +207,24 @@ export default function MatrixView(props: { token: string }) {
     return allSlots.filter((slot) => slotIds.includes(slot.id));
   }, [matrix, slotIds]);
 
-  const suggestableRooms = useMemo(() => {
+  const baseFilteredRooms = useMemo(() => {
     const rooms = matrix?.rooms ?? [];
     return rooms.filter((room) => {
       if (buildingFilter.size !== 0 && !buildingFilter.has(room.building || "A")) {
         return false;
       }
+      return matchesRoomSearch(room, roomQuery);
+    });
+  }, [buildingFilter, matrix, roomQuery]);
+
+  const suggestableRooms = useMemo(() => {
+    return baseFilteredRooms.filter((room) => {
       return slotIds.every((slotId) => (cellMap.get(`${room.id}:${slotId}`) ?? "available") === "available");
     });
-  }, [buildingFilter, cellMap, matrix, slotIds]);
+  }, [baseFilteredRooms, cellMap, slotIds]);
 
   const filteredRooms = useMemo(() => {
-    let next = matrix?.rooms ?? [];
-
-    if (buildingFilter.size !== 0) {
-      next = next.filter((room) => buildingFilter.has(room.building || "A"));
-    }
+    const next = baseFilteredRooms;
 
     if (visibleStatuses.size === ALL_STATUSES.length) return next;
 
@@ -310,7 +234,7 @@ export default function MatrixView(props: { token: string }) {
         return visibleStatuses.has(status);
       })
     );
-  }, [buildingFilter, cellMap, displayedSlots, matrix, visibleStatuses]);
+  }, [baseFilteredRooms, cellMap, displayedSlots, visibleStatuses]);
 
   const selectedRoomIds = useMemo(() => {
     const ids = new Set<number>();
@@ -382,15 +306,26 @@ export default function MatrixView(props: { token: string }) {
       setError("En az 1 slot secmelisiniz.");
       return;
     }
+    if (baseFilteredRooms.length === 0) {
+      setError("Secili sinif/bina filtresinde ve arama sonucunda eslesen sinif bulunamadi.");
+      return;
+    }
     if (suggestableRooms.length === 0) {
-      setError("Secilen slotlarda ve secili sinif filtresinde uygun derslik kalmadi.");
+      setError("Secilen slotlarda ve secili filtrelerde uygun ve bos sinif kalmadi.");
       return;
     }
 
     setLoading(true);
     try {
-      const scope = buildingFilter.size === 0 ? "Secilen slotlarda" : "Secilen slotlarda ve secili sinif/bina filtresinde";
-      const res = buildSuggestion(suggestableRooms, cap, useExamCapacity, scope);
+      const res = await apiSuggest(props.token, {
+        day,
+        slot_ids: slotIds,
+        required_capacity: cap,
+        use_exam_capacity: useExamCapacity,
+        room_ids: baseFilteredRooms.map((room) => room.id),
+        course_id: courseId ? Number(courseId) : null,
+        purpose
+      });
       setSuggestion(res);
 
       const next = new Set<string>();
@@ -629,7 +564,7 @@ export default function MatrixView(props: { token: string }) {
               ))}
             </div>
             <div className="mt-2 text-xs text-white/55">
-              Sistem yalnizca secilen slotlarda ve secili sinif filtresi icinde uygun olan siniflari onerir.
+              Sistem yalnizca secilen slotlarda, secili filtrelerde bos olan siniflari onerir. Dolu siniflar oneride yer almaz.
             </div>
           </div>
         ) : null}
@@ -703,7 +638,16 @@ export default function MatrixView(props: { token: string }) {
                 <div className="min-w-[900px]">
                   <div className="grid" style={{ gridTemplateColumns: `260px repeat(${displayedSlots.length}, minmax(140px, 1fr))` }}>
                     <div className="sticky left-0 top-0 z-[12] min-w-[260px] border-b border-r border-white/10 bg-slate-950 px-3 py-2 text-xs font-semibold text-white/60 shadow-[8px_8px_24px_-16px_rgba(15,23,42,0.95)] backdrop-blur">
-                      Sinif
+                      <div>Sinif</div>
+                      <div className="mt-2 flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950/40 px-2 py-1.5">
+                        <Search className="h-3.5 w-3.5 shrink-0 text-white/35" />
+                        <input
+                          value={roomQuery}
+                          onChange={(event) => setRoomQuery(event.target.value)}
+                          placeholder="Sinif ara"
+                          className="w-full bg-transparent text-xs text-white outline-none placeholder:text-white/35"
+                        />
+                      </div>
                     </div>
 
                     {displayedSlots.map((slot) => (
@@ -765,6 +709,12 @@ export default function MatrixView(props: { token: string }) {
                         })}
                       </div>
                     ))}
+
+                    {filteredRooms.length === 0 ? (
+                      <div className="sticky left-0 z-[9] min-w-[260px] border-r border-t border-white/10 bg-slate-950/95 px-3 py-4 text-xs text-white/55 shadow-[8px_0_24px_-16px_rgba(15,23,42,0.95)] backdrop-blur">
+                        Aramaya ve filtreye uyan sinif bulunamadi.
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
