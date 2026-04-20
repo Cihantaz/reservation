@@ -13,6 +13,13 @@ import type { AvailabilityMatrix, Course, Room, Slot, SuggestResponse } from "..
 import { Badge, Button, Card, Input, Select } from "../ui";
 
 type MatrixStatus = "available" | "locked" | "booked";
+type MatrixBootstrap = {
+  day: string;
+  slots: Slot[];
+  courses: Course[];
+  matrix: AvailabilityMatrix | null;
+  loading: boolean;
+};
 
 const ALL_STATUSES: MatrixStatus[] = ["available", "locked", "booked"];
 
@@ -44,16 +51,17 @@ function matchesRoomSearch(room: Room, roomQuery: string): boolean {
     .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(query));
 }
 
-export default function MatrixView(props: { token: string }) {
-  const [day, setDay] = useState<string>(() => todayIso());
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
+export default function MatrixView(props: { token: string; bootstrap?: MatrixBootstrap }) {
+  const bootstrapDay = props.bootstrap?.day ?? todayIso();
+  const [day, setDay] = useState<string>(bootstrapDay);
+  const [slots, setSlots] = useState<Slot[]>(() => props.bootstrap?.slots ?? []);
+  const [courses, setCourses] = useState<Course[]>(() => props.bootstrap?.courses ?? []);
   const [courseId, setCourseId] = useState<string>("");
   const [slotIds, setSlotIds] = useState<number[]>([]);
   const [requiredCapacity, setRequiredCapacity] = useState<string>("40");
   const [useExamCapacity, setUseExamCapacity] = useState<boolean>(true);
   const [purpose, setPurpose] = useState<string>("Sinav");
-  const [matrix, setMatrix] = useState<AvailabilityMatrix | null>(null);
+  const [matrix, setMatrix] = useState<AvailabilityMatrix | null>(() => props.bootstrap?.matrix ?? null);
   const [suggestion, setSuggestion] = useState<SuggestResponse | null>(null);
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const [lockedUntil, setLockedUntil] = useState<string>("");
@@ -74,9 +82,23 @@ export default function MatrixView(props: { token: string }) {
   const verticalSyncSourceRef = useRef<"side" | "matrix" | null>(null);
 
   useEffect(() => {
+    if (!props.bootstrap) return;
+    if (props.bootstrap.slots.length) {
+      setSlots(props.bootstrap.slots);
+    }
+    if (props.bootstrap.courses.length) {
+      setCourses(props.bootstrap.courses);
+    }
+    if (props.bootstrap.matrix && props.bootstrap.day === day) {
+      setMatrix((current) => (current?.day === day ? current : props.bootstrap?.matrix ?? current));
+    }
+  }, [day, props.bootstrap]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function run() {
+      if (slots.length > 0 && courses.length > 0) return;
       try {
         const [slotItems, courseItems] = await Promise.all([apiSlots(props.token), apiCourses(props.token)]);
         if (cancelled) return;
@@ -91,7 +113,7 @@ export default function MatrixView(props: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [props.token]);
+  }, [courses.length, props.token, slots.length]);
 
   async function refreshMatrix() {
     const next = await apiAvailability(props.token, day);
@@ -99,8 +121,12 @@ export default function MatrixView(props: { token: string }) {
   }
 
   useEffect(() => {
+    if (props.bootstrap?.matrix && props.bootstrap.day === day) {
+      setMatrix((current) => (current?.day === day ? current : props.bootstrap?.matrix ?? current));
+      return;
+    }
     refreshMatrix().catch(() => void 0);
-  }, [day, props.token]);
+  }, [day, props.bootstrap, props.token]);
 
   useEffect(() => {
     const updateScrollMetrics = () => {
