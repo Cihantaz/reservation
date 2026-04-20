@@ -81,6 +81,24 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
   const horizontalSyncSourceRef = useRef<"top" | "matrix" | null>(null);
   const verticalSyncSourceRef = useRef<"side" | "matrix" | null>(null);
 
+  function clearAllFiltersAndSelections() {
+    const resetDay = props.bootstrap?.day ?? todayIso();
+    setDay(resetDay);
+    setCourseId("");
+    setSlotIds([]);
+    setRequiredCapacity("40");
+    setUseExamCapacity(true);
+    setPurpose("Sinav");
+    setSuggestion(null);
+    setSelectedCells(new Set());
+    setLockedUntil("");
+    setBuildingFilter(new Set());
+    setRoomQuery("");
+    setVisibleStatuses(new Set(ALL_STATUSES));
+    setError("");
+    setSuccess("");
+  }
+
   useEffect(() => {
     if (!props.bootstrap) return;
     if (props.bootstrap.slots.length) {
@@ -289,10 +307,10 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
 
   function toggleBuilding(building: string) {
     setBuildingFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(building)) next.delete(building);
-      else next.add(building);
-      return next;
+      if (prev.size === 1 && prev.has(building)) {
+        return new Set();
+      }
+      return new Set([building]);
     });
   }
 
@@ -353,14 +371,6 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
         purpose
       });
       setSuggestion(res);
-
-      const next = new Set<string>();
-      for (const room of res.rooms) {
-        for (const slotId of slotIds) {
-          next.add(`${room.id}:${slotId}`);
-        }
-      }
-      setSelectedCells(next);
     } catch (e) {
       if (e instanceof ApiError || e instanceof Error) setError(e.message);
       else setError("Bir hata olustu.");
@@ -481,6 +491,9 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
               <Sparkles className="h-4 w-4" />
               Akilli Oneri
             </Button>
+            <Button variant="secondary" onClick={clearAllFiltersAndSelections} disabled={loading}>
+              Filtreleri Temizle
+            </Button>
             <Button variant="secondary" onClick={onLock} disabled={loading || selectedCells.size === 0}>
               <Lock className="h-4 w-4" />
               Kilitle
@@ -590,7 +603,7 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
               ))}
             </div>
             <div className="mt-2 text-xs text-white/55">
-              Sistem yalnizca secilen slotlarda, secili filtrelerde bos olan siniflari onerir. Dolu siniflar oneride yer almaz.
+              Bu alan sadece oneridir. Onerilen siniflar otomatik secilmez. Dolu siniflar oneride yer almaz.
             </div>
           </div>
         ) : null}
