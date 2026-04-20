@@ -147,6 +147,10 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
   }, [day, props.bootstrap, props.token]);
 
   useEffect(() => {
+    setSuggestion(null);
+  }, [buildingFilter, courseId, day, purpose, requiredCapacity, roomQuery, slotIds, useExamCapacity]);
+
+  useEffect(() => {
     const updateScrollMetrics = () => {
       const scroller = matrixScrollRef.current;
       if (!scroller) return;
