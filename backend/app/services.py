@@ -1,4 +1,3 @@
-import itertools
 from datetime import date, timedelta
 
 from fastapi import HTTPException
@@ -16,17 +15,17 @@ def cleanup_expired_locks(db: Session) -> None:
 
 
 def cleanup_expired_sessions(db: Session) -> None:
-    # İleride eklenebilir; şimdilik auth tarafı okurken siliyor.
+    # Ä°leride eklenebilir; ÅŸimdilik auth tarafÄ± okurken siliyor.
     return None
 
 
 def get_availability_matrix(db: Session, day: date) -> tuple[list[Room], list[Slot], dict[tuple[int, int], str]]:
     """
-    Dönüş: (rooms, slots, status_map[(room_id, slot_id)] = available|booked|locked)
+    DÃ¶nÃ¼ÅŸ: (rooms, slots, status_map[(room_id, slot_id)] = available|booked|locked)
 
     NULL/empty handling:
     - Rezervasyon yoksa -> available
-    - Lock varsa ve TTL geçmemiş -> locked
+    - Lock varsa ve TTL geÃ§memiÅŸ -> locked
     """
     cleanup_expired_locks(db)
 
@@ -44,7 +43,7 @@ def get_availability_matrix(db: Session, day: date) -> tuple[list[Room], list[Sl
         ).all()
     )
 
-    # base schedule occupied: slot.sort_order (1..12) aralığına göre
+    # base schedule occupied: slot.sort_order (1..12) aralÄ±ÄŸÄ±na gÃ¶re
     base_rows = db.execute(
         select(BaseSchedule.room_id, BaseSchedule.slot_start, BaseSchedule.slot_end).where(BaseSchedule.weekday == wd)
     ).all()
@@ -73,18 +72,18 @@ def get_availability_matrix(db: Session, day: date) -> tuple[list[Room], list[Sl
 
 def week_calendar(db: Session, start_day: date) -> tuple[list[date], list[Slot], dict[tuple[date, int], str]]:
     """
-    Slot bazlı haftalık heatmap (tüm odalar üzerinden).
-    Bir slot-gün içinde:
-      - herhangi bir confirmed rezervasyon varsa -> booked (kırmızı)
-      - yok ama herhangi bir lock varsa -> locked (sarı)
-      - yoksa -> available (yeşil)
+    Slot bazlÄ± haftalÄ±k heatmap (tÃ¼m odalar Ã¼zerinden).
+    Bir slot-gÃ¼n iÃ§inde:
+      - herhangi bir confirmed rezervasyon varsa -> booked (kÄ±rmÄ±zÄ±)
+      - yok ama herhangi bir lock varsa -> locked (sarÄ±)
+      - yoksa -> available (yeÅŸil)
     """
     cleanup_expired_locks(db)
 
     days = [start_day + timedelta(days=i) for i in range(7)]
     slots = list(db.scalars(select(Slot).order_by(Slot.sort_order.asc())))
 
-    # GROUP BY ile hızlı durum hesaplama
+    # GROUP BY ile hÄ±zlÄ± durum hesaplama
     booked_rows = db.execute(
         select(Reservation.day, Reservation.slot_id, func.count(Reservation.id))
         .where(and_(Reservation.day.in_(days), Reservation.status == ReservationStatus.confirmed))
@@ -112,28 +111,28 @@ def week_calendar(db: Session, start_day: date) -> tuple[list[date], list[Slot],
     return days, slots, status
 
 
-def available_rooms_for_slots(db: Session, day: date, slot_ids: list[int]) -> list[Room]:
+def available_rooms_for_slots(db: Session, day: date, slot_ids: list[int], room_ids: list[int] | None = None) -> list[Room]:
     """
     JOIN + NULL handling:
-    - reservation veya lock olan odaları dışarıda bırakır.
+    - reservation veya lock olan odalarÄ± dÄ±ÅŸarÄ±da bÄ±rakÄ±r.
     """
     cleanup_expired_locks(db)
 
     slot_ids = sorted(set(slot_ids))
     if not slot_ids:
-        raise HTTPException(status_code=400, detail="En az 1 slot seçmelisiniz.")
+        raise HTTPException(status_code=400, detail="En az 1 slot seÃ§melisiniz.")
 
     selected_sort_orders = list(
         db.scalars(select(Slot.sort_order).where(Slot.id.in_(slot_ids)).order_by(Slot.sort_order.asc()))
     )
     if not selected_sort_orders:
-        raise HTTPException(status_code=400, detail="Geçerli slot bulunamadı.")
+        raise HTTPException(status_code=400, detail="GeÃ§erli slot bulunamadÄ±.")
 
     weekday_map = {0: "M", 1: "T", 2: "W", 3: "TH", 4: "F", 5: "F", 6: "F"}
     wd = weekday_map.get(day.weekday(), "M")
 
-    # Slotların herhangi birinde reserved/locked olan room'ları exclude et.
-    # SQLite'da NOT EXISTS ile net ve hızlı.
+    # SlotlarÄ±n herhangi birinde reserved/locked olan room'larÄ± exclude et.
+    # SQLite'da NOT EXISTS ile net ve hÄ±zlÄ±.
     sub_reserved = (
         select(Reservation.id)
         .where(
@@ -167,11 +166,11 @@ def available_rooms_for_slots(db: Session, day: date, slot_ids: list[int]) -> li
         )
         .exists()
     )
-    q = (
-        select(Room)
-        .where(and_(~sub_reserved, ~sub_locked, ~sub_base_schedule))
-        .order_by(Room.exam_capacity.desc(), Room.name.asc())
-    )
+    room_filters = [~sub_reserved, ~sub_locked, ~sub_base_schedule]
+    if room_ids is not None:
+        room_filters.append(Room.id.in_(sorted(set(room_ids))))
+
+    q = select(Room).where(and_(*room_filters)).order_by(Room.exam_capacity.desc(), Room.name.asc())
     return list(db.scalars(q))
 
 
@@ -181,63 +180,63 @@ def suggest_rooms(
     slot_ids: list[int],
     required_capacity: int,
     use_exam_capacity: bool,
+    room_ids: list[int] | None = None,
 ) -> tuple[list[Room], int]:
-    rooms = available_rooms_for_slots(db, day, slot_ids)
+    rooms = available_rooms_for_slots(db, day, slot_ids, room_ids=room_ids)
     cap_attr = "exam_capacity" if use_exam_capacity else "class_capacity"
+    cap_label = "sinav kapasitesi" if use_exam_capacity else "sinif kapasitesi"
 
-    candidates = [(r, getattr(r, cap_attr)) for r in rooms]
+    candidates = sorted(
+        [(room, int(getattr(room, cap_attr) or 0)) for room in rooms],
+        key=lambda item: (-item[1], item[0].name),
+    )
     if not candidates:
-        raise HTTPException(status_code=409, detail="Seçilen zaman için uygun sınıf bulunamadı.")
+        raise HTTPException(status_code=409, detail="Secilen slotlarda uygun ve bos sinif bulunamadi.")
 
-    # Önce tek oda best-fit
-    single = sorted([c for c in candidates if c[1] >= required_capacity], key=lambda x: (x[1] - required_capacity, x[1], x[0].name))
+    single = sorted(
+        [candidate for candidate in candidates if candidate[1] >= required_capacity],
+        key=lambda item: (item[1] - required_capacity, item[1], item[0].name),
+    )
     if single:
-        r, cap = single[0]
-        return [r], cap
+        room, cap = single[0]
+        return [room], cap
 
-    # Aksi halde kombinasyon (subset sum / bin packing) - demo ölçeğinde brute force.
-    best_subset: list[tuple[Room, int]] | None = None
-    for k in range(2, min(6, len(candidates)) + 1):  # kombinasyon büyümesini sınırlayalım
-        for subset in itertools.combinations(candidates, k):
-            total = sum(cap for (_r, cap) in subset)
-            if total < required_capacity:
-                continue
-            if best_subset is None:
-                best_subset = list(subset)
-                continue
-            best_total = sum(cap for (_r, cap) in best_subset)
-            # kıyas: önce oda sayısı, sonra fazla kapasite, sonra toplam kapasite, sonra isim
-            def score(sub: list[tuple[Room, int]]):
-                tot = sum(c for (_r, c) in sub)
-                names = ",".join(sorted(r.name for (r, _c) in sub))
-                return (len(sub), tot - required_capacity, tot, names)
-
-            if score(list(subset)) < score(best_subset):
-                best_subset = list(subset)
-        if best_subset is not None:
-            break
-
-    if best_subset is None:
-        # toplam kapasite yetmiyor
-        total_all = sum(cap for (_r, cap) in candidates)
+    total_all = sum(cap for (_room, cap) in candidates)
+    if total_all < required_capacity:
         raise HTTPException(
             status_code=409,
-            detail=f"Toplam uygun kapasite yetersiz. Uygun toplam kapasite: {total_all}",
+            detail=(
+                f"{required_capacity} kisi icin secilen slotlarda uygun sinif bulunamadi. "
+                f"Secili filtrelerde ulasilabilen toplam uygun {cap_label}: {total_all}."
+            ),
         )
 
-    subset_rooms = [r for (r, _cap) in best_subset]
-    total = sum(cap for (_r, cap) in best_subset)
-    return subset_rooms, total
+    chosen: list[tuple[Room, int]] = []
+    total = 0
+    for candidate in candidates:
+        chosen.append(candidate)
+        total += candidate[1]
+        if total >= required_capacity:
+            break
+
+    for room, cap in sorted(chosen, key=lambda item: (item[1], item[0].name)):
+        if len(chosen) == 1:
+            break
+        if total - cap >= required_capacity:
+            chosen.remove((room, cap))
+            total -= cap
+
+    return [room for (room, _cap) in chosen], total
 
 
 def acquire_locks(db: Session, user: User, day: date, slot_ids: list[int], room_ids: list[int]):
     cleanup_expired_locks(db)
     if not slot_ids or not room_ids:
-        raise HTTPException(status_code=400, detail="Slot ve sınıf seçimi zorunludur.")
+        raise HTTPException(status_code=400, detail="Slot ve sÄ±nÄ±f seÃ§imi zorunludur.")
 
     locked_until = utcnow() + timedelta(seconds=settings.lock_ttl_seconds)
 
-    # Transaction içinde insert; UNIQUE conflict -> pessimistic lock başarısız.
+    # Transaction iÃ§inde insert; UNIQUE conflict -> pessimistic lock baÅŸarÄ±sÄ±z.
     try:
         for room_id in set(room_ids):
             for slot_id in set(slot_ids):
@@ -254,7 +253,7 @@ def acquire_locks(db: Session, user: User, day: date, slot_ids: list[int], room_
         db.flush()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Seçtiğiniz slot/sınıflardan bazıları şu an kilitli veya rezerve edildi.")
+        raise HTTPException(status_code=409, detail="SeÃ§tiÄŸiniz slot/sÄ±nÄ±flardan bazÄ±larÄ± ÅŸu an kilitli veya rezerve edildi.")
 
     return locked_until
 
@@ -262,7 +261,7 @@ def acquire_locks(db: Session, user: User, day: date, slot_ids: list[int], room_
 def acquire_locks_cells(db: Session, user: User, day: date, cells: list[tuple[int, int]]):
     cleanup_expired_locks(db)
     if not cells:
-        raise HTTPException(status_code=400, detail="En az 1 hücre seçmelisiniz.")
+        raise HTTPException(status_code=400, detail="En az 1 hÃ¼cre seÃ§melisiniz.")
 
     locked_until = utcnow() + timedelta(seconds=settings.lock_ttl_seconds)
     uniq = sorted(set(cells))
@@ -282,7 +281,7 @@ def acquire_locks_cells(db: Session, user: User, day: date, cells: list[tuple[in
         db.flush()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Seçtiğiniz hücrelerden bazıları şu an kilitli veya rezerve edildi.")
+        raise HTTPException(status_code=409, detail="SeÃ§tiÄŸiniz hÃ¼crelerden bazÄ±larÄ± ÅŸu an kilitli veya rezerve edildi.")
 
     return locked_until
 
@@ -298,13 +297,13 @@ def confirm_reservation_cells(
 ) -> list[Reservation]:
     cleanup_expired_locks(db)
     if not cells:
-        raise HTTPException(status_code=400, detail="En az 1 hücre seçmelisiniz.")
+        raise HTTPException(status_code=400, detail="En az 1 hÃ¼cre seÃ§melisiniz.")
 
     uniq = sorted(set(cells))
     room_ids = sorted({r for (r, _s) in uniq})
     slot_ids = sorted({s for (_r, s) in uniq})
 
-    # Kullanıcının lock'ları var mı? (tam hücre seti)
+    # KullanÄ±cÄ±nÄ±n lock'larÄ± var mÄ±? (tam hÃ¼cre seti)
     locks = list(
         db.scalars(
             select(ReservationLock).where(
@@ -319,7 +318,7 @@ def confirm_reservation_cells(
     )
     locked_pairs = {(l.room_id, l.slot_id) for l in locks}
     if any(pair not in locked_pairs for pair in uniq):
-        raise HTTPException(status_code=409, detail="Rezervasyon onayı için gerekli kilitler bulunamadı (süresi dolmuş olabilir).")
+        raise HTTPException(status_code=409, detail="Rezervasyon onayÄ± iÃ§in gerekli kilitler bulunamadÄ± (sÃ¼resi dolmuÅŸ olabilir).")
 
     created: list[Reservation] = []
     try:
@@ -352,7 +351,7 @@ def confirm_reservation_cells(
         return created
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Rezervasyon çakışması oluştu (birisi aynı anda rezerve etti).")
+        raise HTTPException(status_code=409, detail="Rezervasyon Ã§akÄ±ÅŸmasÄ± oluÅŸtu (birisi aynÄ± anda rezerve etti).")
 
 
 def confirm_reservation(
@@ -370,9 +369,9 @@ def confirm_reservation(
     room_ids = sorted(set(room_ids))
     slot_ids = sorted(set(slot_ids))
     if not room_ids or not slot_ids:
-        raise HTTPException(status_code=400, detail="Slot ve sınıf seçimi zorunludur.")
+        raise HTTPException(status_code=400, detail="Slot ve sÄ±nÄ±f seÃ§imi zorunludur.")
 
-    # Kullanıcının lock'ları var mı?
+    # KullanÄ±cÄ±nÄ±n lock'larÄ± var mÄ±?
     locks = list(
         db.scalars(
             select(ReservationLock).where(
@@ -387,7 +386,7 @@ def confirm_reservation(
     )
     expected = len(room_ids) * len(slot_ids)
     if len(locks) != expected:
-        raise HTTPException(status_code=409, detail="Rezervasyon onayı için gerekli kilitler bulunamadı (süresi dolmuş olabilir).")
+        raise HTTPException(status_code=409, detail="Rezervasyon onayÄ± iÃ§in gerekli kilitler bulunamadÄ± (sÃ¼resi dolmuÅŸ olabilir).")
 
     created: list[Reservation] = []
     try:
@@ -405,7 +404,7 @@ def confirm_reservation(
                 )
                 db.add(res)
                 created.append(res)
-        # lock'ları sil
+        # lock'larÄ± sil
         db.execute(
             delete(ReservationLock).where(
                 and_(
@@ -421,13 +420,13 @@ def confirm_reservation(
         return created
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Rezervasyon çakışması oluştu (birisi aynı anda rezerve etti).")
+        raise HTTPException(status_code=409, detail="Rezervasyon Ã§akÄ±ÅŸmasÄ± oluÅŸtu (birisi aynÄ± anda rezerve etti).")
 
 
 def cancel_reservation(db: Session, user: User, reservation_id: int) -> None:
     res = db.get(Reservation, reservation_id)
     if not res or res.status != ReservationStatus.confirmed:
-        raise HTTPException(status_code=404, detail="Rezervasyon bulunamadı.")
+        raise HTTPException(status_code=404, detail="Rezervasyon bulunamadÄ±.")
     if res.user_id != user.id and user.role.value != "admin":
         raise HTTPException(status_code=403, detail="Sadece kendi rezervasyonunuzu iptal edebilirsiniz.")
 
@@ -438,4 +437,3 @@ def cancel_reservation(db: Session, user: User, reservation_id: int) -> None:
 
 def _log(db: Session, actor: str, action: str, entity: str = "", entity_id: str = "", detail: str = "") -> None:
     db.add(AuditLog(actor_email=actor, action=action, entity=entity, entity_id=entity_id, detail=detail))
-
