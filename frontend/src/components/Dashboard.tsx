@@ -73,8 +73,8 @@ export default function Dashboard(props: { token: string; user: UserMe }) {
     () => {
       const base: { id: TabId; title: string; icon: JSX.Element }[] = [
         { id: "rezervasyon" as const, title: "Rezervasyon Yap", icon: <LayoutGrid className="h-4 w-4" /> },
-        { id: "takvim" as const, title: "HaftalÄ±k Takvim", icon: <CalendarDays className="h-4 w-4" /> },
-        { id: "benim" as const, title: "RezervasyonlarÄ±m", icon: <ListChecks className="h-4 w-4" /> }
+        { id: "takvim" as const, title: "Haftalık Takvim", icon: <CalendarDays className="h-4 w-4" /> },
+        { id: "benim" as const, title: "Rezervasyonlarım", icon: <ListChecks className="h-4 w-4" /> }
       ];
       if (props.user.role === "admin") {
         base.push({ id: "admin" as const, title: "Admin Paneli", icon: <Settings className="h-4 w-4" /> });
@@ -89,11 +89,11 @@ export default function Dashboard(props: { token: string; user: UserMe }) {
       <Card className="p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-sm font-semibold">HoÅŸ geldiniz</div>
-            <div className="text-xs text-white/55">Bu panel Ã¼zerinden sÄ±nÄ±f/sÄ±nav rezervasyonlarÄ±nÄ± yÃ¶netebilirsiniz.</div>
+            <div className="text-sm font-semibold">Hoş geldiniz</div>
+            <div className="text-xs text-white/55">Bu panel üzerinden sınıf/sınav rezervasyonlarını yönetebilirsiniz.</div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge tone="slate">Rol: {props.user.role === "admin" ? "Admin" : "KullanÄ±cÄ±"}</Badge>
+            <Badge tone="slate">Rol: {props.user.role === "admin" ? "Admin" : "Kullanıcı"}</Badge>
             <Badge tone="slate">Oturum: Aktif</Badge>
           </div>
         </div>
@@ -115,4 +115,3 @@ export default function Dashboard(props: { token: string; user: UserMe }) {
     </div>
   );
 }
-
