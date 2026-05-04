@@ -12,7 +12,13 @@ class Settings(BaseSettings):
     admin_email: str = "oidbotomasyon@isikun.edu.tr"
     legacy_admin_email: str = "cihan.tazeoz@isikun.edu.tr"
     allow_origin: str = "http://localhost:5173"
-    allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
+    allow_origins: str = (
+        "http://localhost:5173,"
+        "http://127.0.0.1:5173,"
+        "http://localhost:3000,"
+        "https://reservation.isikun.edu.tr,"
+        "https://oidb-reservation-web.onrender.com"
+    )
     enable_dev_token: bool = False
     # Mail: SMTP (default) or Resend fallback
     smtp_host: str = ""
