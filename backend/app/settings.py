@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_use_tls: bool = True
-    smtp_timeout_seconds: int = 5
+    smtp_timeout_seconds: int = 3
     smtp_from_email: str = "noreply2@isikun.edu.tr"
     smtp_from_name: str = "OIDB Reservation"
     smtp_reply_to: str = ""

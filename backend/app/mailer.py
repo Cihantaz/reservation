@@ -55,7 +55,7 @@ def send_otp_email(email: str, code: str) -> None:
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    timeout = max(1, min(settings.smtp_timeout_seconds, 10))
+    timeout = max(1, min(settings.smtp_timeout_seconds, 5))
 
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=timeout) as server:

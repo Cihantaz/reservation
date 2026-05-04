@@ -39,7 +39,7 @@ services:
       - key: RESERVATION_SMTP_USE_TLS
         value: "true"
       - key: RESERVATION_SMTP_TIMEOUT_SECONDS
-        value: "5"
+        value: "3"
       - key: RESERVATION_SMTP_FROM_EMAIL
         value: "noreply2@isikun.edu.tr"
       - key: RESERVATION_SMTP_FROM_NAME
