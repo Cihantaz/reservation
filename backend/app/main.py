@@ -7,9 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from . import services
-from .auth import get_current_user, login_with_email, logout as auth_logout, require_admin
+from .auth import get_current_user, login_with_email, logout as auth_logout, request_otp, require_admin, verify_otp
 from .db import Base, engine, get_db
-from .models import AuditLog, BaseSchedule, Course, Reservation, Room, Slot, User
+from .models import AuditLog, BaseSchedule, Course, Reservation, Room, Slot, User, UserRole
 from .schedule_import import derive_exam_capacity, parse_rooms_excel, parse_schedule_excel, parse_schedule_csv
 from .schemas import (
     AvailabilityMatrixOut,
@@ -26,6 +26,8 @@ from .schemas import (
     MapRangeIn,
     MapRangeOut,
     MyReservationsOut,
+    OtpRequestIn,
+    OtpVerifyIn,
     PagedAuditLogsOut,
     PagedGlobalReservationsOut,
     ReservationOut,
@@ -210,6 +212,21 @@ def auth_login(payload: dict, db: Session = Depends(get_db)):
     return {"token": sess.token, "user": {"email": user.email, "role": user.role}}
 
 
+@app.post("/api/auth/otp/request")
+def auth_otp_request(payload: OtpRequestIn, db: Session = Depends(get_db)):
+    request_otp(db, email=str(payload.email))
+    db.commit()
+    return {"message": "OTP kodu e-posta ile gonderildi."}
+
+
+@app.post("/api/auth/otp/verify", response_model=SessionOut)
+def auth_otp_verify(payload: OtpVerifyIn, db: Session = Depends(get_db)):
+    sess = verify_otp(db, email=str(payload.email), code=payload.code)
+    user = db.get(User, sess.user_id)
+    db.commit()
+    return {"token": sess.token, "user": {"email": user.email, "role": user.role}}
+
+
 @app.get("/api/me", response_model=UserMe)
 def me(user: User = Depends(get_current_user)):
     return {"email": user.email, "role": user.role}
@@ -234,6 +251,27 @@ def auth_logout_route(
 # ----------------------
 # Admin (core data)
 # ----------------------
+
+
+@app.post("/api/admin/promote-user")
+def promote_user(
+    payload: dict,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    email = payload.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="E-posta adresi gerekli.")
+    user = db.scalar(select(User).where(User.email == email))
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanici bulunamadi.")
+    user.role = UserRole.admin
+    user.is_active = True
+    db.commit()
+    db.refresh(user)
+    db.add(AuditLog(actor_email=admin.email, action="admin.user.promote", entity="user", entity_id=str(user.id), detail=f"{email} admin yapildi."))
+    db.commit()
+    return {"message": f"{email} admin olarak yukseltildi."}
 
 
 @app.get("/admin/rooms", response_model=list[RoomOut])

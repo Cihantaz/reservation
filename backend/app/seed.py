@@ -3,7 +3,8 @@ from datetime import datetime, time, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import Room, SessionToken, Slot, User, UserRole
+from .auth import ensure_admin_policy
+from .models import Room, SessionToken, Slot
 from .schedule_import import derive_exam_capacity
 from .settings import settings
 
@@ -37,37 +38,8 @@ def seed_if_empty(db: Session) -> None:
     - Slots default to 1..12 so the matrix can render immediately
     """
 
-    # Migrate old admin email if exists, otherwise create new admin
-    OLD_ADMIN_EMAIL = "cihan.tazeoz@isikun.edu.tr"
-    NEW_ADMIN_EMAIL = "oidbotomasyon@isikun.edu.tr"
-
-    admin = db.scalar(select(User).where(User.email == NEW_ADMIN_EMAIL))
-    if admin:
-        # If the new email exists but is not admin/inactive, promote it
-        changed = False
-        if admin.role != UserRole.admin:
-            admin.role = UserRole.admin
-            changed = True
-        if not admin.is_active:
-            admin.is_active = True
-            changed = True
-        if changed:
-            db.flush()
-            print(f"[SEED] Existing user promoted to admin: {NEW_ADMIN_EMAIL}")
-    else:
-        old_admin = db.scalar(select(User).where(User.email == OLD_ADMIN_EMAIL))
-        if old_admin:
-            old_admin.email = NEW_ADMIN_EMAIL
-            old_admin.role = UserRole.admin
-            old_admin.is_active = True
-            db.flush()
-            admin = old_admin
-            print(f"[SEED] Admin email migrated: {OLD_ADMIN_EMAIL} -> {NEW_ADMIN_EMAIL}")
-        else:
-            admin = User(email=NEW_ADMIN_EMAIL, role=UserRole.admin, is_active=True)
-            db.add(admin)
-            db.flush()
-            print(f"[SEED] Admin user created: {NEW_ADMIN_EMAIL}")
+    admin = ensure_admin_policy(db)
+    print(f"[SEED] Admin policy applied. Admin: {admin.email}")
 
     dev_session = db.scalar(select(SessionToken).where(SessionToken.token == DEV_TOKEN))
     if settings.enable_dev_token:

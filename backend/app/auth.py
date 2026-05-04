@@ -18,6 +18,46 @@ logger = logging.getLogger(__name__)
 DIRECT_ADMIN_EMAIL = "oidbotomasyon@isikun.edu.tr"
 
 
+def _primary_admin_email() -> str:
+    return (settings.admin_email or DIRECT_ADMIN_EMAIL).strip().lower()
+
+
+def _legacy_admin_email() -> str:
+    return settings.legacy_admin_email.strip().lower()
+
+
+def _is_primary_admin(email: str) -> bool:
+    return email.strip().lower() == _primary_admin_email()
+
+
+def _is_legacy_admin(email: str) -> bool:
+    legacy_admin = _legacy_admin_email()
+    return bool(legacy_admin) and email.strip().lower() == legacy_admin
+
+
+def ensure_admin_policy(db: Session) -> User:
+    """Ensure the configured admin account is admin and the legacy address is not."""
+    admin_email = _primary_admin_email()
+    admin = db.scalar(select(User).where(User.email == admin_email))
+    if not admin:
+        admin = User(email=admin_email, role=UserRole.admin, is_active=True)
+        db.add(admin)
+        db.flush()
+    else:
+        if admin.role != UserRole.admin:
+            admin.role = UserRole.admin
+        if not admin.is_active:
+            admin.is_active = True
+
+    legacy_email = _legacy_admin_email()
+    if legacy_email and legacy_email != admin_email:
+        legacy_user = db.scalar(select(User).where(User.email == legacy_email))
+        if legacy_user and legacy_user.role == UserRole.admin:
+            legacy_user.role = UserRole.user
+
+    return admin
+
+
 def _new_otp_code() -> str:
     return "".join(secrets.choice(string.digits) for _ in range(6))
 
@@ -46,35 +86,9 @@ def _normalize_login_email(email: str) -> str:
 
 
 def _get_or_create_direct_admin(db: Session) -> User:
-    OLD_ADMIN_EMAIL = "cihan.tazeoz@isikun.edu.tr"
-
-    user = db.scalar(select(User).where(User.email == DIRECT_ADMIN_EMAIL))
-    if not user:
-        old_user = db.scalar(select(User).where(User.email == OLD_ADMIN_EMAIL))
-        if old_user:
-            old_user.email = DIRECT_ADMIN_EMAIL
-            old_user.role = UserRole.admin
-            old_user.is_active = True
-            db.commit()
-            db.refresh(old_user)
-            return old_user
-
-        user = User(email=DIRECT_ADMIN_EMAIL, role=UserRole.admin, is_active=True)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        return user
-
-    changed = False
-    if user.role != UserRole.admin:
-        user.role = UserRole.admin
-        changed = True
-    if not user.is_active:
-        user.is_active = True
-        changed = True
-    if changed:
-        db.commit()
-        db.refresh(user)
+    user = ensure_admin_policy(db)
+    db.commit()
+    db.refresh(user)
     return user
 
 
@@ -111,9 +125,13 @@ def verify_otp(db: Session, email: str, code: str) -> SessionToken:
 
     user = db.scalar(select(User).where(User.email == email))
     if not user:
-        user = User(email=email, role=UserRole.user, is_active=True)
+        role = UserRole.admin if _is_primary_admin(email) else UserRole.user
+        user = User(email=email, role=role, is_active=True)
         db.add(user)
         db.flush()
+
+    ensure_admin_policy(db)
+    db.flush()
 
     sess = _issue_session_for_user(db, user)
 
@@ -123,14 +141,21 @@ def verify_otp(db: Session, email: str, code: str) -> SessionToken:
 
 def login_with_email(db: Session, email: str) -> SessionToken:
     email = _normalize_login_email(email)
+    ensure_admin_policy(db)
 
     user = db.scalar(select(User).where(User.email == email))
     if not user:
-        user = User(email=email, role=UserRole.user, is_active=True)
+        role = UserRole.admin if _is_primary_admin(email) else UserRole.user
+        user = User(email=email, role=role, is_active=True)
         db.add(user)
         db.flush()
     elif not user.is_active:
         raise HTTPException(status_code=401, detail="Kullanici pasif.")
+    elif _is_primary_admin(email):
+        user.role = UserRole.admin
+        user.is_active = True
+    elif _is_legacy_admin(email) and user.role == UserRole.admin:
+        user.role = UserRole.user
 
     sess = _issue_session_for_user(db, user)
     _log(db, actor=email, action="auth.login", entity="user", entity_id=str(user.id), detail="E-posta ile giris.")
@@ -154,6 +179,7 @@ def bootstrap_login(db: Session, secret: str) -> SessionToken:
     elif user.role != UserRole.admin:
         user.role = UserRole.admin
 
+    ensure_admin_policy(db)
     sess = _issue_session_for_user(db, user)
     _log(db, actor=bootstrap_email, action="auth.bootstrap_login", entity="user", entity_id=str(user.id), detail="Gecici erisim baglantisi ile giris.")
     return sess
@@ -178,6 +204,7 @@ def test_login(db: Session, email: str, password: str) -> SessionToken:
     elif user.role != UserRole.admin:
         user.role = UserRole.admin
 
+    ensure_admin_policy(db)
     sess = _issue_session_for_user(db, user)
     _log(db, actor=expected_email, action="auth.test_login", entity="user", entity_id=str(user.id), detail="Gecici test sifresi ile giris.")
     return sess
@@ -196,6 +223,7 @@ def auto_login(db: Session) -> SessionToken:
     elif user.role != UserRole.admin:
         user.role = UserRole.admin
 
+    ensure_admin_policy(db)
     sess = _issue_session_for_user(db, user)
     _log(db, actor=auto_email, action="auth.auto_login", entity="user", entity_id=str(user.id), detail="Gecici otomatik giris ile oturum acildi.")
     return sess
@@ -234,7 +262,16 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Oturum suresi doldu.")
 
     user = db.get(User, sess.user_id)
-    if not user or not user.is_active:
+    if not user:
+        raise HTTPException(status_code=401, detail="Kullanici pasif.")
+
+    ensure_admin_policy(db)
+    if _is_primary_admin(user.email):
+        user.role = UserRole.admin
+        user.is_active = True
+    elif _is_legacy_admin(user.email) and user.role == UserRole.admin:
+        user.role = UserRole.user
+    if not user.is_active:
         raise HTTPException(status_code=401, detail="Kullanici pasif.")
     return user
 

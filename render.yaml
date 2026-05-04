@@ -19,6 +19,10 @@ services:
         value: "false"
       - key: RESERVATION_LOGIN_EMAIL_DOMAIN
         value: "@isikun.edu.tr"
+      - key: RESERVATION_ADMIN_EMAIL
+        value: "oidbotomasyon@isikun.edu.tr"
+      - key: RESERVATION_LEGACY_ADMIN_EMAIL
+        value: "cihan.tazeoz@isikun.edu.tr"
 
       # --- SMTP Configuration (secure: set values in Render Dashboard) ---
       - key: RESERVATION_SMTP_HOST

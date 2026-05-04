@@ -38,6 +38,22 @@ export async function login(email: string): Promise<{ token: string; user: UserM
   });
 }
 
+export async function requestOtp(email: string): Promise<{ message: string }> {
+  return http("/api/auth/otp/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email })
+  });
+}
+
+export async function verifyOtp(email: string, code: string): Promise<{ token: string; user: UserMe }> {
+  return http("/api/auth/otp/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code })
+  });
+}
+
 export async function me(token: string): Promise<UserMe> {
   return http("/api/me", {
     headers: { Authorization: `Bearer ${token}` }

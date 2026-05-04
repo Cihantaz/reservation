@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = 60 * 60 * 12
     lock_ttl_seconds: int = 180
     login_email_domain: str = "@isikun.edu.tr"
+    admin_email: str = "oidbotomasyon@isikun.edu.tr"
+    legacy_admin_email: str = "cihan.tazeoz@isikun.edu.tr"
     allow_origin: str = "http://localhost:5173"
     allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
     enable_dev_token: bool = False
@@ -59,4 +61,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
