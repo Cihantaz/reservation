@@ -42,7 +42,19 @@ def seed_if_empty(db: Session) -> None:
     NEW_ADMIN_EMAIL = "oidbotomasyon@isikun.edu.tr"
 
     admin = db.scalar(select(User).where(User.email == NEW_ADMIN_EMAIL))
-    if not admin:
+    if admin:
+        # If the new email exists but is not admin/inactive, promote it
+        changed = False
+        if admin.role != UserRole.admin:
+            admin.role = UserRole.admin
+            changed = True
+        if not admin.is_active:
+            admin.is_active = True
+            changed = True
+        if changed:
+            db.flush()
+            print(f"[SEED] Existing user promoted to admin: {NEW_ADMIN_EMAIL}")
+    else:
         old_admin = db.scalar(select(User).where(User.email == OLD_ADMIN_EMAIL))
         if old_admin:
             old_admin.email = NEW_ADMIN_EMAIL
