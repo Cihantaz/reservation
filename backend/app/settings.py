@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     smtp_from_email: str = "noreply2@isikun.edu.tr"
     smtp_from_name: str = "OIDB Reservation"
     smtp_reply_to: str = ""
+    sendgrid_api_base: str = "https://api.sendgrid.com"
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = "noreply2@isikun.edu.tr"
+    sendgrid_from_name: str = "OIDB Reservation"
+    sendgrid_reply_to: str = ""
 
     # Resend (legacy / optional fallback)
     resend_api_base: str = "https://api.resend.com"

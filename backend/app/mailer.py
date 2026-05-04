@@ -1,8 +1,10 @@
 import logging
+import json
 import socket
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from urllib import error, request
 
 from fastapi import HTTPException
 
@@ -16,16 +18,7 @@ def _sender_header() -> str:
     return settings.smtp_sender_header
 
 
-def send_otp_email(email: str, code: str) -> None:
-    if not settings.smtp_host.strip():
-        if settings.enable_dev_token:
-            logger.info("[DEV MODE] OTP for %s: %s", email, code)
-            return
-        raise HTTPException(status_code=500, detail="SMTP sunucusu ayarlanmamis.")
-
-    if not settings.smtp_username.strip() or not settings.smtp_password.strip():
-        raise HTTPException(status_code=500, detail="SMTP kullanici adi / sifre ayarlanmamis.")
-
+def _email_bodies(code: str) -> tuple[str, str, str]:
     subject = "OTP Dogrulama Kodunuz"
     text_body = (
         "Merhaba,\n\n"
@@ -42,6 +35,24 @@ def send_otp_email(email: str, code: str) -> None:
         "<p>Eger bu istegi siz yapmadiysaniz bu e-postayi yok sayabilirsiniz.</p>"
         "</div>"
     )
+    return subject, text_body, html_body
+
+
+def send_otp_email(email: str, code: str) -> None:
+    if settings.sendgrid_api_key.strip():
+        _send_otp_email_sendgrid(email=email, code=code)
+        return
+
+    if not settings.smtp_host.strip():
+        if settings.enable_dev_token:
+            logger.info("[DEV MODE] OTP for %s: %s", email, code)
+            return
+        raise HTTPException(status_code=500, detail="SMTP sunucusu ayarlanmamis.")
+
+    if not settings.smtp_username.strip() or not settings.smtp_password.strip():
+        raise HTTPException(status_code=500, detail="SMTP kullanici adi / sifre ayarlanmamis.")
+
+    subject, text_body, html_body = _email_bodies(code)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -85,3 +96,52 @@ def send_otp_email(email: str, code: str) -> None:
     except Exception as exc:
         logger.error("Unexpected error while sending OTP: %s", exc)
         raise HTTPException(status_code=500, detail="OTP e-postasi gonderilirken bir hata olustu.") from exc
+
+
+def _send_otp_email_sendgrid(email: str, code: str) -> None:
+    subject, text_body, html_body = _email_bodies(code)
+    from_email = settings.sendgrid_from_email.strip() or settings.smtp_from_email.strip()
+    from_name = settings.sendgrid_from_name.strip() or settings.smtp_from_name.strip()
+    if not from_email:
+        raise HTTPException(status_code=500, detail="SendGrid gonderici e-posta adresi ayarlanmamis.")
+
+    payload = {
+        "personalizations": [{"to": [{"email": email}]}],
+        "from": {"email": from_email, "name": from_name},
+        "subject": subject,
+        "content": [
+            {"type": "text/plain", "value": text_body},
+            {"type": "text/html", "value": html_body},
+        ],
+    }
+
+    reply_to = settings.sendgrid_reply_to.strip() or settings.smtp_reply_to.strip()
+    if reply_to:
+        payload["reply_to"] = {"email": reply_to}
+
+    body = json.dumps(payload).encode("utf-8")
+    req = request.Request(
+        url=f"{settings.sendgrid_api_base.rstrip('/')}/v3/mail/send",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {settings.sendgrid_api_key.strip()}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    timeout = max(3, min(settings.smtp_timeout_seconds, 10))
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            response.read()
+        logger.info("OTP email sent to %s via SendGrid API", email)
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        logger.error("SendGrid API error while sending OTP: status=%s detail=%s", exc.code, detail)
+        raise HTTPException(status_code=502, detail="SendGrid OTP e-postasini reddetti. API key ve sender adresini kontrol edin.") from exc
+    except error.URLError as exc:
+        logger.error("SendGrid API network error while sending OTP: %s", exc)
+        raise HTTPException(status_code=502, detail="SendGrid API servisine ulasilamadi.") from exc
+    except TimeoutError as exc:
+        logger.error("SendGrid API timeout while sending OTP: %s", exc)
+        raise HTTPException(status_code=504, detail="SendGrid API zaman asimina ugradi.") from exc

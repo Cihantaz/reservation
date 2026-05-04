@@ -48,6 +48,20 @@ services:
         value: ""
         sync: false
 
+      # --- SendGrid HTTPS API (recommended for Render Free because SMTP ports are blocked) ---
+      - key: RESERVATION_SENDGRID_API_KEY
+        value: ""
+        sync: false
+      - key: RESERVATION_SENDGRID_API_BASE
+        value: "https://api.sendgrid.com"
+      - key: RESERVATION_SENDGRID_FROM_EMAIL
+        value: "noreply2@isikun.edu.tr"
+      - key: RESERVATION_SENDGRID_FROM_NAME
+        value: "OIDB Reservation"
+      - key: RESERVATION_SENDGRID_REPLY_TO
+        value: ""
+        sync: false
+
       # --- Resend (legacy / optional fallback) ---
       - key: RESERVATION_RESEND_API_KEY
         sync: false
