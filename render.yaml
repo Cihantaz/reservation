@@ -19,14 +19,38 @@ services:
         value: "false"
       - key: RESERVATION_LOGIN_EMAIL_DOMAIN
         value: "@isikun.edu.tr"
+
+      # --- SMTP Configuration (secure: set values in Render Dashboard) ---
+      - key: RESERVATION_SMTP_HOST
+        value: ""
+        sync: false
+      - key: RESERVATION_SMTP_PORT
+        value: "587"
+      - key: RESERVATION_SMTP_USERNAME
+        value: ""
+        sync: false
+      - key: RESERVATION_SMTP_PASSWORD
+        value: ""
+        sync: false
+      - key: RESERVATION_SMTP_USE_TLS
+        value: "true"
+      - key: RESERVATION_SMTP_FROM_EMAIL
+        value: "noreply2@isikun.edu.tr"
+      - key: RESERVATION_SMTP_FROM_NAME
+        value: "OIDB Reservation"
+      - key: RESERVATION_SMTP_REPLY_TO
+        value: ""
+        sync: false
+
+      # --- Resend (legacy / optional fallback) ---
       - key: RESERVATION_RESEND_API_KEY
         sync: false
       - key: RESERVATION_RESEND_DOMAIN
-        value: oidb.reservation
+        value: ""
       - key: RESERVATION_RESEND_FROM_LOCAL_PART
-        value: oidbotomasyon.reservation
+        value: "oidbotomasyon.reservation"
       - key: RESERVATION_RESEND_FROM_NAME
-        value: OIDB Reservation
+        value: "OIDB Reservation"
       - key: RESERVATION_RESEND_REPLY_TO
         value: ""
 
