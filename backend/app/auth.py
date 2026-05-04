@@ -129,6 +129,8 @@ def verify_otp(db: Session, email: str, code: str) -> SessionToken:
         user = User(email=email, role=role, is_active=True)
         db.add(user)
         db.flush()
+    elif not user.is_active and not _is_primary_admin(email):
+        raise HTTPException(status_code=401, detail="Kullanici pasif.")
 
     ensure_admin_policy(db)
     db.flush()
