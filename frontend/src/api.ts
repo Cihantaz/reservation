@@ -8,7 +8,13 @@ import type {
   WeekCalendar
 } from "./types";
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE ?? "http://127.0.0.1:3001";
+const configuredApiBase = (import.meta as any).env?.VITE_API_BASE as string | undefined;
+const API_BASE =
+  configuredApiBase?.trim() ||
+  (typeof window !== "undefined" && window.location.hostname.endsWith("reservation.isikun.edu.tr")
+    ? "https://api.reservation.isikun.edu.tr"
+    : "http://127.0.0.1:3001");
+const API_TIMEOUT_MS = 30000;
 
 export class ApiError extends Error {
   status: number;
@@ -18,29 +24,48 @@ export class ApiError extends Error {
   }
 }
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, init);
-  } catch (e) {
-    throw new ApiError(0, "Sunucuya ulasilamadi. Lutfen internet baglantinizi kontrol edin veya backend'in calistigindan emin olun.");
+function errorMessageFromBody(body: unknown): string {
+  if (typeof body === "string") {
+    if (body.trim().startsWith("<!doctype") || body.trim().startsWith("<html")) {
+      return "API beklenmeyen bir yanıt döndürdü. Lütfen API adresini kontrol edin.";
+    }
+    return body || "Bir hata oluştu.";
   }
-  const contentType = res.headers.get("content-type") ?? "";
-  const isJson = contentType.includes("application/json");
-  const body = isJson ? await res.json() : await res.text();
-  if (!res.ok) {
-    const msg = typeof body === "string" ? body : body?.detail ?? `Bir hata olustu. (HTTP ${res.status})`;
-    throw new ApiError(res.status, msg);
+  if (body && typeof body === "object") {
+    const detail = (body as { detail?: unknown }).detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) return detail.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).join(" ");
+    const message = (body as { message?: unknown }).message;
+    if (typeof message === "string") return message;
   }
-  return body as T;
+  return "Bir hata oluştu.";
 }
 
-export async function login(email: string): Promise<{ token: string; user: UserMe }> {
-  return http("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email })
-  });
+async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      signal: init?.signal ?? controller.signal
+    });
+    const contentType = res.headers.get("content-type") ?? "";
+    const isJson = contentType.includes("application/json");
+    const body = isJson ? await res.json() : await res.text();
+    if (!res.ok) {
+      throw new ApiError(res.status, errorMessageFromBody(body));
+    }
+    return body as T;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(0, "API yanıt vermedi. OTP e-posta ayarlarını ve API servis loglarını kontrol edin.");
+    }
+    throw new ApiError(0, "API'ye ulaşılamadı. Bağlantı, CORS veya API adresi ayarını kontrol edin.");
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function requestOtp(email: string): Promise<{ message: string }> {

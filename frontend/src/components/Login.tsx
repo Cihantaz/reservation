@@ -10,6 +10,7 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
   const [code, setCode] = useState<string>("");
   const [otpSent, setOtpSent] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [pendingAction, setPendingAction] = useState<"request" | "verify" | null>(null);
   const [error, setError] = useState<string>("");
   const [info, setInfo] = useState<string>("");
 
@@ -20,16 +21,18 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
     setError("");
     setInfo("");
     setLoading(true);
+    setPendingAction("request");
     try {
       await requestOtp(normalizedEmail);
       setOtpSent(true);
       setCode("");
-      setInfo("OTP kodu e-posta adresinize gonderildi.");
+      setInfo("OTP kodu e-posta adresinize gönderildi.");
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
-      else setError("Bir hata olustu.");
+      else setError("Bir hata oluştu.");
     } finally {
       setLoading(false);
+      setPendingAction(null);
     }
   }
 
@@ -37,15 +40,17 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
     setError("");
     setInfo("");
     setLoading(true);
+    setPendingAction("verify");
     try {
       const res = await verifyOtp(normalizedEmail, code.trim());
       setSession(res.token, res.user);
       props.onLogin(res.token, res.user);
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
-      else setError("Bir hata olustu.");
+      else setError("Bir hata oluştu.");
     } finally {
       setLoading(false);
+      setPendingAction(null);
     }
   }
 
@@ -53,8 +58,8 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
     <div className="grid gap-6">
       <Card className="mx-auto w-full max-w-xl p-8">
         <div>
-          <div className="text-base font-semibold">Kurumsal Giris</div>
-          <div className="text-sm text-white/55">Kurumsal e-posta adresiniz ile giris yapin.</div>
+          <div className="text-base font-semibold">Kurumsal Giriş</div>
+          <div className="text-sm text-white/55">Kurumsal e-posta adresiniz ile giriş yapın.</div>
         </div>
 
         <div className="mt-6 space-y-3">
@@ -76,7 +81,7 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
           </div>
           <div className="flex items-center justify-between">
             <Badge tone={emailHint ? "green" : "slate"}>{emailHint ? "Uygun" : "@isikun.edu.tr zorunlu"}</Badge>
-            <Badge tone="slate">OTP ile giris</Badge>
+            <Badge tone="slate">OTP ile giriş</Badge>
           </div>
 
           {otpSent ? (
@@ -107,20 +112,20 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
                   }}
                   disabled={loading}
                 >
-                  E-postayi Degistir
+                  E-postayı Değiştir
                 </Button>
                 <Button onClick={onRequestOtpClick} disabled={loading || !emailHint}>
-                  Yeniden Gonder
+                  {pendingAction === "request" ? "Gönderiliyor..." : "Yeniden Gönder"}
                 </Button>
                 <Button onClick={onVerifyOtpClick} disabled={loading || code.trim().length < 6}>
-                  Giris Yap
+                  {pendingAction === "verify" ? "Kontrol Ediliyor..." : "Giriş Yap"}
                 </Button>
               </div>
             </div>
           ) : (
             <div className="flex justify-end pt-2">
               <Button onClick={onRequestOtpClick} disabled={loading || !emailHint}>
-                Kod Gonder
+                {pendingAction === "request" ? "Gönderiliyor..." : "Kod Gönder"}
               </Button>
             </div>
           )}
