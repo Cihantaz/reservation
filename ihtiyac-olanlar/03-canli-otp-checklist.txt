@@ -1,0 +1,59 @@
+CANLI OTP CHECKLIST
+
+1. DNS ve domain
+- reservation.isikun.edu.tr icin DNS kayitlari hazir olmali.
+- api.reservation.isikun.edu.tr icin DNS kayitlari hazir olmali.
+- mail-reservation.isikun.edu.tr icin Resend dogrulama kayitlari eklenmis olmali.
+- Tum ilgili domain/subdomainler verified durumuna gelmeli.
+
+2. Render
+- Frontend custom domain: reservation.isikun.edu.tr
+- Backend custom domain: api.reservation.isikun.edu.tr
+- Uretim API adresi frontend env degiskenlerine girilmeli.
+- Backend CORS ayarlari sadece gercek frontend alan adlarini kabul etmeli.
+- Veritabani baglantisi uretim ortaminda dogru calismali.
+
+3. Resend
+- Verified domain: mail-reservation.isikun.edu.tr
+- Gecerli RESEND_API_KEY tanimlanmali.
+- RESEND_DOMAIN mail-reservation.isikun.edu.tr olmali.
+- Gonderici local part ornegi: oidbotomasyon.reservation
+- Gonderici adres ornegi: oidbotomasyon.reservation@mail-reservation.isikun.edu.tr
+- Gerekirse REPLY_TO gercek bir destek adresi olmali.
+
+4. Uygulama tarafinda yapilacaklar
+- Gecici test girisleri kapatilmali.
+- Gecici direkt admin girisleri kapatilmali.
+- Frontend tekrar OTP ekranina alinmali.
+- OTP isteme ve OTP dogrulama akisi son kullaniciya uygun metinlerle gosterilmeli.
+- Admin paneli sadece admin rolune acik kalmali.
+- Rezervasyonlarim sadece giris yapan kullanicinin kayitlarini gostermeli.
+
+5. Yetki ve gorunurluk
+- Normal kullanici sadece kendi rezervasyonlarini gormeli.
+- Admin tum rezervasyonlari ve yonetim ekranlarini gormeli.
+- Yalnizca @isikun.edu.tr uzantili kullanicilar OTP isteyebilmeli.
+
+6. Test senaryolari
+- Dogru e-posta ile OTP istenebiliyor mu
+- Yanlis domainli e-posta reddediliyor mu
+- OTP maili gercekten gelen kutusuna dusuyor mu
+- Dogru OTP ile oturum aciliyor mu
+- Yanlis OTP reddediliyor mu
+- Kullanici sadece kendi rezervasyonlarini goruyor mu
+- Farkli kullanicilar birbirinin rezervasyonlarini gormuyor mu
+- Admin tum rezervasyonlari gorebiliyor mu
+
+7. Uretime gecmeden once kontrol
+- Render uzerindeki test login endpointleri kapatilmis olmali.
+- Frontend uzerindeki test giris ekranlari kaldirilmis olmali.
+- Gecici anahtarlar ve test sifreleri devre disi birakilmis olmali.
+- Gercek kurumsal subdomainler aktif olmali.
+
+8. Ozet
+Canli OTP icin eksik olan ana parcalar:
+- kurumsal subdomainler
+- DNS kayitlari
+- Resend domain verification
+- test modlarinin kapatilmasi
+- frontend'in gercek OTP akisina geri alinmasi

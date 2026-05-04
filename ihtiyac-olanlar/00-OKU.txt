@@ -1,0 +1,17 @@
+Bu klasor, rezervasyon uygulamasinin canli OTP girisi ve kurumsal alan adi yapisi icin gereken temel dokumanlari icerir.
+
+Dosyalar:
+- 01-onerilen-mimari.txt
+- 02-it-talep-listesi.txt
+- 03-canli-otp-checklist.txt
+
+Onerilen yapi ozeti:
+- Ana portal: portal.isikun.edu.tr
+- Rezervasyon uygulamasi: reservation.isikun.edu.tr
+- Backend API: api.reservation.isikun.edu.tr
+- OTP mail gonderici domaini: mail-reservation.isikun.edu.tr
+
+Not:
+- Render uygulamayi internette calistiran platformdur.
+- Resend OTP kodunu e-posta ile gonderen servistir.
+- Uygulama Render'da kalabilir; kullanicilar yine kurumsal subdomain uzerinden erisir.

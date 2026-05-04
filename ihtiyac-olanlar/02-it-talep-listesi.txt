@@ -1,0 +1,45 @@
+IT ICIN TALEP LISTESI
+
+Konu:
+Rezervasyon uygulamasi icin subdomain ve DNS kaydi talebi
+
+Istenenler:
+1. reservation.isikun.edu.tr subdomaini acilsin.
+2. api.reservation.isikun.edu.tr subdomaini acilsin.
+3. mail-reservation.isikun.edu.tr subdomaini acilsin.
+4. reservation.isikun.edu.tr ve api.reservation.isikun.edu.tr icin Render'in verecegi DNS kayitlari eklensin.
+5. mail-reservation.isikun.edu.tr icin Resend'in verecegi DNS kayitlari eklensin.
+6. Bu kayitlarin kurum DNS yonetiminde kalici olarak korunmasi saglansin.
+
+Beklenen DNS kayit tipleri:
+- CNAME
+- TXT
+- MX
+
+Resend tarafinda buyuk ihtimalle gerekli olacak kayitlar:
+- SPF TXT
+- DKIM TXT
+- bazen MX
+- tercihen DMARC
+
+IT'ye gonderilebilecek kisa metin:
+
+Merhaba,
+
+Render uzerinde calisan rezervasyon uygulamamiz icin asagidaki subdomainlerin acilmasina ihtiyacim var:
+
+- reservation.isikun.edu.tr : kullanici arayuzu
+- api.reservation.isikun.edu.tr : backend API
+- mail-reservation.isikun.edu.tr : OTP ve dogrulama e-postasi gonderimi
+
+reservation ve api adresleri icin Render tarafinin verecegi DNS kayitlarinin, mail-reservation adresi icin ise Resend tarafinin verecegi DNS kayitlarinin DNS'e eklenmesi gerekiyor.
+
+Bu uygulamada yalnizca @isikun.edu.tr uzantili kullanicilar giris yapacak ve OTP kodlari e-posta ile gonderilecek.
+
+DNS kayitlarini ekleyebilecek kisi veya ekibin yonlendirilmesini rica ederim.
+
+Tesekkurler.
+
+Ek not:
+- Mail gonderen adres ornek olarak oidbotomasyon.reservation@mail-reservation.isikun.edu.tr olabilir.
+- Bu adresin ayri bir posta kutusu olmasi zorunlu degildir; ancak gerekiyorsa reply-to icin gercek bir destek adresi tanimlanabilir.

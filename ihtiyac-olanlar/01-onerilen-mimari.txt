@@ -1,0 +1,39 @@
+ONERILEN MIMARI
+
+1. Amac
+Bu yapi, rezervasyon uygulamasinin kurumsal adresle kullanilmasini, OTP ile e-posta dogrulamasi yapilmasini ve ileride baska uygulamalarin da ayni portal ekosistemine eklenmesini hedefler.
+
+2. Onerilen adresler
+- Ana portal: portal.isikun.edu.tr
+- Rezervasyon uygulamasi: reservation.isikun.edu.tr
+- Rezervasyon backend API: api.reservation.isikun.edu.tr
+- OTP mail gonderici domaini: mail-reservation.isikun.edu.tr
+
+3. Rollerin anlami
+- Render: frontend, backend ve gerekirse veritabanini internette calistiran hosting/platform
+- Resend: OTP kodunu e-posta ile gonderen servis
+- isikun.edu.tr subdomainleri: kullanicilarin gorecegi kurumsal adresler
+
+4. Akis
+1. Kullanici reservation.isikun.edu.tr adresine gelir.
+2. Kullanici ad.soyad@isikun.edu.tr e-posta adresini girer.
+3. Backend sadece @isikun.edu.tr uzantili adresleri kabul eder.
+4. Backend bir OTP kodu olusturur.
+5. Backend bu kodu Resend uzerinden kullanicinin mail adresine gonderir.
+6. Kullanici gelen kodu girer.
+7. Dogrulama basariliysa oturum acilir.
+8. Rezervasyonlarim alani sadece giris yapan e-posta adresinin rezervasyonlarini gosterir.
+9. Admin rolu olan kullanici tum rezervasyonlari gorebilir.
+
+5. Neden bu yapi?
+- portal.isikun.edu.tr ileride birden fazla uygulama icin ana giris noktasi olabilir.
+- reservation.isikun.edu.tr bu uygulamayi bagimsiz tutar.
+- api.reservation.isikun.edu.tr frontend ve backend ayrimini temiz yapar.
+- mail-reservation.isikun.edu.tr mail gonderimi icin ayrilmis, teknik olarak daha duzgun bir alt alan olur.
+
+6. Onemli not
+Hosting adresi ile kullanicinin gordugu adres farkli olabilir.
+Ornek:
+- Uygulama Render'da calisir.
+- Kullanici tarayicida reservation.isikun.edu.tr adresini gorur.
+Bu normaldir.
