@@ -87,7 +87,7 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
                 <Input
                   value={code}
                   onChange={(value) => {
-                    setCode(value.replace(/\D/g, "").slice(0, 12));
+                    setCode(value.replace(/\D/g, "").slice(0, 6));
                     setError("");
                     setInfo("");
                   }}
@@ -112,7 +112,7 @@ export default function Login(props: { onLogin: (token: string, user: UserMe) =>
                 <Button onClick={onRequestOtpClick} disabled={loading || !emailHint}>
                   Yeniden Gonder
                 </Button>
-                <Button onClick={onVerifyOtpClick} disabled={loading || code.trim().length < 4}>
+                <Button onClick={onVerifyOtpClick} disabled={loading || code.trim().length < 6}>
                   Giris Yap
                 </Button>
               </div>

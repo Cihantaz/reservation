@@ -19,12 +19,17 @@ export class ApiError extends Error {
 }
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, init);
+  } catch (e) {
+    throw new ApiError(0, "Sunucuya ulasilamadi. Lutfen internet baglantinizi kontrol edin veya backend'in calistigindan emin olun.");
+  }
   const contentType = res.headers.get("content-type") ?? "";
   const isJson = contentType.includes("application/json");
   const body = isJson ? await res.json() : await res.text();
   if (!res.ok) {
-    const msg = typeof body === "string" ? body : body?.detail ?? "Bir hata oluştu.";
+    const msg = typeof body === "string" ? body : body?.detail ?? `Bir hata olustu. (HTTP ${res.status})`;
     throw new ApiError(res.status, msg);
   }
   return body as T;

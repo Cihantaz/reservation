@@ -16,9 +16,11 @@ def _sender_header() -> str:
 
 
 def send_otp_email(email: str, code: str) -> None:
-    # Validate SMTP configuration
+    # Development fallback: if SMTP is not configured, log to console
     if not settings.smtp_host.strip():
-        raise HTTPException(status_code=500, detail="SMTP sunucusu ayarlanmamis.")
+        logger.info("[DEV MODE] OTP for %s: %s", email, code)
+        return
+
     if not settings.smtp_username.strip() or not settings.smtp_password.strip():
         raise HTTPException(status_code=500, detail="SMTP kullanici adi / sifre ayarlanmamis.")
 
