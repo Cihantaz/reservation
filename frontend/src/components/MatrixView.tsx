@@ -53,15 +53,14 @@ function matchesRoomSearch(room: Room, roomQuery: string): boolean {
 }
 
 export default function MatrixView(props: { token: string; userEmail: string; bootstrap?: MatrixBootstrap }) {
-  const bootstrapDay = props.bootstrap?.day ?? todayIso();
-  const [day, setDay] = useState<string>(bootstrapDay);
+  const [day, setDay] = useState<string>("");
   const [slots, setSlots] = useState<Slot[]>(() => props.bootstrap?.slots ?? []);
   const [courses, setCourses] = useState<Course[]>(() => props.bootstrap?.courses ?? []);
   const [courseId, setCourseId] = useState<string>("");
   const [slotIds, setSlotIds] = useState<number[]>([]);
-  const [requiredCapacity, setRequiredCapacity] = useState<string>("40");
+  const [requiredCapacity, setRequiredCapacity] = useState<string>("");
   const [useExamCapacity, setUseExamCapacity] = useState<boolean>(true);
-  const [purpose, setPurpose] = useState<string>("Sinav");
+  const [purpose, setPurpose] = useState<string>("");
   const [matrix, setMatrix] = useState<AvailabilityMatrix | null>(() => props.bootstrap?.matrix ?? null);
   const [suggestion, setSuggestion] = useState<SuggestResponse | null>(null);
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
@@ -87,13 +86,12 @@ export default function MatrixView(props: { token: string; userEmail: string; bo
   const [confirmModalData, setConfirmModalData] = useState<ReservationConfirmData | null>(null);
 
   function clearAllFiltersAndSelections() {
-    const resetDay = props.bootstrap?.day ?? todayIso();
-    setDay(resetDay);
+    setDay("");
     setCourseId("");
     setSlotIds([]);
-    setRequiredCapacity("40");
+    setRequiredCapacity("");
     setUseExamCapacity(true);
-    setPurpose("Sinav");
+    setPurpose("");
     setSuggestion(null);
     setSelectedCells(new Set());
     setLockedUntil("");
@@ -144,6 +142,7 @@ export default function MatrixView(props: { token: string; userEmail: string; bo
   }
 
   useEffect(() => {
+    if (!day) return;
     if (props.bootstrap?.matrix && props.bootstrap.day === day) {
       setMatrix((current) => (current?.day === day ? current : props.bootstrap?.matrix ?? current));
       return;
