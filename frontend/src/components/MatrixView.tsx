@@ -10,7 +10,8 @@ import {
   slots as apiSlots
 } from "../api";
 import type { AvailabilityMatrix, Course, Room, Slot, SuggestResponse } from "../types";
-import { Badge, Button, Card, Input, Select } from "../ui";
+import { Badge, Button, Card, Input, SearchableSelect } from "../ui";
+import ReservationConfirmModal, { type ReservationConfirmData } from "./ReservationConfirmModal";
 
 type MatrixStatus = "available" | "locked" | "booked";
 type MatrixBootstrap = {
@@ -80,6 +81,10 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
   const matrixScrollRef = useRef<HTMLDivElement | null>(null);
   const horizontalSyncSourceRef = useRef<"top" | "matrix" | null>(null);
   const verticalSyncSourceRef = useRef<"side" | "matrix" | null>(null);
+
+  // Modal state
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  const [confirmModalData, setConfirmModalData] = useState<ReservationConfirmData | null>(null);
 
   function clearAllFiltersAndSelections() {
     const resetDay = props.bootstrap?.day ?? todayIso();
@@ -257,13 +262,23 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
 
   const baseFilteredRooms = useMemo(() => {
     const rooms = matrix?.rooms ?? [];
-    return rooms.filter((room) => {
+    let filtered = rooms.filter((room) => {
       if (buildingFilter.size !== 0 && !buildingFilter.has(room.building || "A")) {
         return false;
       }
       return matchesRoomSearch(room, roomQuery);
     });
-  }, [buildingFilter, matrix, roomQuery]);
+
+    // Sınıfları kapasitesine göre küçükten büyüğe sırala
+    const capKey = useExamCapacity ? "exam_capacity" : "class_capacity";
+    filtered.sort((a, b) => {
+      const capA = Number(a[capKey]) || 0;
+      const capB = Number(b[capKey]) || 0;
+      return capA - capB;
+    });
+
+    return filtered;
+  }, [buildingFilter, matrix, roomQuery, useExamCapacity]);
 
   const suggestableRooms = useMemo(() => {
     return baseFilteredRooms.filter((room) => {
@@ -272,7 +287,14 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
   }, [baseFilteredRooms, cellMap, slotIds]);
 
   const filteredRooms = useMemo(() => {
-    const next = baseFilteredRooms;
+    let next = baseFilteredRooms;
+
+    // Slot seçilmişse: seçilen TÜM slotlar uygun olan sınıfları göster
+    if (slotIds.length > 0) {
+      next = next.filter((room) =>
+        slotIds.every((slotId) => (cellMap.get(`${room.id}:${slotId}`) ?? "available") === "available")
+      );
+    }
 
     if (visibleStatuses.size === ALL_STATUSES.length) return next;
 
@@ -282,7 +304,7 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
         return visibleStatuses.has(status);
       })
     );
-  }, [baseFilteredRooms, cellMap, displayedSlots, visibleStatuses]);
+  }, [baseFilteredRooms, cellMap, displayedSlots, visibleStatuses, slotIds]);
 
   const selectedRoomIds = useMemo(() => {
     const ids = new Set<number>();
@@ -433,6 +455,25 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
         course_id: courseId ? Number(courseId) : null
       });
 
+      // Modal data oluştur
+      const selectedRoomIds = Array.from(selectedCells)
+        .map((key) => Number(key.split(":")[0]))
+        .filter((v, i, arr) => arr.indexOf(v) === i);
+      
+      const selectedRooms = (matrix?.rooms ?? []).filter((room) => selectedRoomIds.includes(room.id));
+      const selectedSlots = (matrix?.slots ?? []).filter((slot) => slotIds.includes(slot.id));
+      const selectedCourse = courseId ? courses.find((c) => c.id === Number(courseId)) : null;
+
+      setConfirmModalData({
+        date: day,
+        slots: selectedSlots,
+        purpose,
+        course: selectedCourse || undefined,
+        rooms: selectedRooms,
+        userEmail: "" // TODO: Get from user context/API
+      });
+      setShowConfirmModal(true);
+
       setSuccess("Rezervasyon onaylandi.");
       setLockedUntil("");
       setSuggestion(null);
@@ -458,12 +499,19 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
 
             <div>
               <div className="text-xs font-semibold text-white/60">Kapasite Ihtiyaci</div>
-              <Input value={requiredCapacity} onChange={setRequiredCapacity} type="number" placeholder="Orn: 40" />
+              <Input
+                value={requiredCapacity}
+                onChange={setRequiredCapacity}
+                type="number"
+                placeholder="Orn: 40"
+                disabled={!day}
+              />
+              {!day && <div className="mt-1 text-xs text-amber-400/80">Önce tarih seçin</div>}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <Badge tone={useExamCapacity ? "green" : "slate"}>
                   Kapasite Turu: {useExamCapacity ? "Sinav Kapasitesi" : "Sinif Kapasitesi"}
                 </Badge>
-                <Button variant="secondary" onClick={() => setUseExamCapacity((value) => !value)}>
+                <Button variant="secondary" onClick={() => setUseExamCapacity((value) => !value)} disabled={!day}>
                   Degistir
                 </Button>
               </div>
@@ -471,7 +519,15 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
 
             <div>
               <div className="text-xs font-semibold text-white/60">Amac</div>
-              <Input value={purpose} onChange={setPurpose} placeholder="Sinav / Proje / Etut" />
+              <Input
+                value={purpose}
+                onChange={setPurpose}
+                placeholder="Sinav / Proje / Etut"
+                disabled={!requiredCapacity || Number(requiredCapacity) <= 0}
+              />
+              {(!requiredCapacity || Number(requiredCapacity) <= 0) && (
+                <div className="mt-1 text-xs text-amber-400/80">Önce kapasite girin</div>
+              )}
               <div className="mt-2 text-xs text-white/50">
                 Ders secimi opsiyonel. Secilmezse ad-hoc rezervasyon sayilir.
               </div>
@@ -479,14 +535,20 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
 
             <div>
               <div className="text-xs font-semibold text-white/60">Ders (opsiyonel)</div>
-              <Select value={courseId} onChange={setCourseId}>
-                <option value="">Ders secilmedi</option>
-                {courses.map((course) => (
-                  <option key={course.id} value={String(course.id)}>
-                    {formatCourseLabel(course)}
-                  </option>
-                ))}
-              </Select>
+              <SearchableSelect
+                value={courseId}
+                onChange={setCourseId}
+                disabled={!purpose}
+                placeholder="Ders seçiniz"
+                options={[
+                  { value: "", label: "Ders seçilmedi" },
+                  ...courses.map((course) => ({
+                    value: String(course.id),
+                    label: formatCourseLabel(course)
+                  }))
+                ]}
+              />
+              {!purpose && <div className="mt-1 text-xs text-amber-400/80">Önce amaç girin</div>}
             </div>
           </div>
 
@@ -512,19 +574,24 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
         <div className="mt-4 grid gap-2 xl:grid-cols-[minmax(0,1.5fr)_240px]">
           <div>
             <div className="text-xs font-semibold text-white/60">Sinif/Bina Filtresi</div>
+            {slotIds.length === 0 && <div className="mt-1 text-xs text-amber-400/80">Önce slot seçin</div>}
             <div className="mt-1 flex flex-wrap gap-2">
               {allBuildings.map((building) => {
                 const active = buildingFilter.size === 0 || buildingFilter.has(building);
+                const disabled = slotIds.length === 0;
                 return (
                   <button
                     key={building}
                     type="button"
-                    onClick={() => toggleBuilding(building)}
+                    onClick={() => !disabled && toggleBuilding(building)}
+                    disabled={disabled}
                     className={
                       "rounded-xl border px-3 py-2 text-xs font-semibold transition " +
-                      (active
-                        ? "border-sky-400/40 bg-sky-500/15 text-sky-200"
-                        : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
+                      (disabled
+                        ? "border-white/5 bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                        : active
+                          ? "border-sky-400/40 bg-sky-500/15 text-sky-200"
+                          : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
                     }
                   >
                     {building}
@@ -534,8 +601,14 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
               {allBuildings.length ? (
                 <button
                   type="button"
-                  onClick={() => setBuildingFilter(new Set())}
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/10"
+                  onClick={() => !slotIds.length === 0 && setBuildingFilter(new Set())}
+                  disabled={slotIds.length === 0}
+                  className={
+                    "rounded-xl border px-3 py-2 text-xs font-semibold transition " +
+                    (slotIds.length === 0
+                      ? "border-white/5 bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                      : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
+                  }
                 >
                   Tumu
                 </button>
@@ -565,19 +638,24 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
 
         <div className="mt-4">
           <div className="text-xs font-semibold text-white/60">Slot Secimi</div>
+          {!purpose && <div className="mt-1 text-xs text-amber-400/80">Önce amaç girin</div>}
           <div className="mt-1 flex flex-wrap gap-2">
             {slots.map((slot) => {
               const active = slotIds.includes(slot.id);
+              const disabled = !purpose;
               return (
                 <button
                   key={slot.id}
                   type="button"
-                  onClick={() => toggleSlot(slot.id)}
+                  onClick={() => !disabled && toggleSlot(slot.id)}
+                  disabled={disabled}
                   className={
                     "rounded-xl border px-3 py-2 text-xs font-semibold transition " +
-                    (active
-                      ? "border-sky-400/40 bg-sky-500/15 text-sky-200"
-                      : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
+                    (disabled
+                      ? "border-white/5 bg-white/5 text-white/30 cursor-not-allowed opacity-50"
+                      : active
+                        ? "border-sky-400/40 bg-sky-500/15 text-sky-200"
+                        : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10")
                   }
                 >
                   {slot.code} <span className="font-normal text-white/45">({slot.start_time.slice(0, 5)}-{slot.end_time.slice(0, 5)})</span>
@@ -660,6 +738,13 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
 
         {!matrix ? (
           <div className="mt-4 text-sm text-white/60">Yukleniyor...</div>
+        ) : slotIds.length === 0 ? (
+          <div className="mt-5 flex items-center justify-center rounded-2xl border border-white/10 bg-slate-950/20 py-12 text-center text-sm text-white/55">
+            <div>
+              <div className="text-white/60 font-semibold">Slot seçiniz</div>
+              <div className="text-xs text-white/40 mt-2">Sınıf matrisini görmek için önce slot seçin</div>
+            </div>
+          </div>
         ) : (
           <div className="mt-5 flex min-h-0 flex-1 flex-col space-y-3">
             {matrixScrollWidth > matrixViewportWidth ? (
@@ -790,6 +875,15 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
           </div>
         </div>
       ) : null}
+
+      <ReservationConfirmModal
+        isOpen={showConfirmModal}
+        data={confirmModalData}
+        onClose={() => {
+          setShowConfirmModal(false);
+          setConfirmModalData(null);
+        }}
+      />
     </div>
   );
 }

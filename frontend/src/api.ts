@@ -13,7 +13,7 @@ const API_BASE =
   configuredApiBase?.trim() ||
   (typeof window !== "undefined" && window.location.hostname.endsWith("reservation.isikun.edu.tr")
     ? "https://api.reservation.isikun.edu.tr"
-    : "http://127.0.0.1:3001");
+    : "http://127.0.0.1:8000");
 const API_TIMEOUT_MS = 30000;
 
 export class ApiError extends Error {

@@ -80,12 +80,103 @@ export function Select(
       value={props.value}
       onChange={(e) => props.onChange(e.target.value)}
       className={
-        "w-full rounded-xl border border-white/10 bg-slate-950/40 px-3.5 py-2.5 text-base text-white focus:border-sky-400/60 focus:outline-none focus:ring-2 focus:ring-sky-400/20 " +
+        "w-full rounded-xl border border-white/10 bg-slate-950/40 px-3.5 py-2.5 text-base text-white focus:border-sky-400/60 focus:outline-none focus:ring-2 focus:ring-sky-400/20 disabled:opacity-50 disabled:cursor-not-allowed " +
         (props.className ?? "")
       }
     >
       {props.children}
     </select>
+  );
+}
+
+export function SearchableSelect(
+  props: {
+    value: string;
+    onChange: (v: string) => void;
+    options: Array<{ value: string; label: string }>;
+    placeholder?: string;
+    disabled?: boolean;
+    className?: string;
+  }
+) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [searchTerm, setSearchTerm] = React.useState("");
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+
+  const filtered = props.options.filter((opt) =>
+    opt.label.toLocaleLowerCase("tr-TR").includes(searchTerm.toLocaleLowerCase("tr-TR"))
+  );
+
+  const selectedLabel = props.options.find((o) => o.value === props.value)?.label || props.placeholder || "Seçin";
+
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isOpen]);
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => !props.disabled && setIsOpen((v) => !v)}
+        disabled={props.disabled}
+        className={
+          "w-full rounded-xl border border-white/10 bg-slate-950/40 px-3.5 py-2.5 text-base text-left text-white focus:border-sky-400/60 focus:outline-none focus:ring-2 focus:ring-sky-400/20 disabled:opacity-50 disabled:cursor-not-allowed transition " +
+          (isOpen ? "border-sky-400/60 ring-2 ring-sky-400/20" : "") +
+          (props.className ?? "")
+        }
+      >
+        <div className="flex items-center justify-between">
+          <span>{selectedLabel}</span>
+          <span className={`transition ${isOpen ? "rotate-180" : ""}`}>▼</span>
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full z-50 mt-2 w-full rounded-xl border border-white/10 bg-slate-950 shadow-lg">
+          <input
+            type="text"
+            placeholder="Ara..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            autoFocus
+            className="w-full rounded-t-xl border-b border-white/10 bg-slate-950 px-3.5 py-2.5 text-base text-white placeholder:text-white/35 focus:border-sky-400/60 focus:outline-none focus:ring-2 focus:ring-sky-400/20"
+          />
+          <div className="max-h-64 overflow-y-auto">
+            {filtered.length > 0 ? (
+              filtered.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    props.onChange(opt.value);
+                    setIsOpen(false);
+                    setSearchTerm("");
+                  }}
+                  className={
+                    "w-full px-3.5 py-2.5 text-left text-base transition " +
+                    (props.value === opt.value
+                      ? "bg-sky-500/20 text-sky-100 font-semibold"
+                      : "text-white/80 hover:bg-white/10")
+                  }
+                >
+                  {opt.label}
+                </button>
+              ))
+            ) : (
+              <div className="px-3.5 py-3 text-center text-sm text-white/50">Sonuç bulunamadı</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
