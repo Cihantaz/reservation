@@ -601,7 +601,7 @@ export default function MatrixView(props: { token: string; userEmail: string; bo
               {allBuildings.length ? (
                 <button
                   type="button"
-                  onClick={() => !slotIds.length === 0 && setBuildingFilter(new Set())}
+                  onClick={() => slotIds.length > 0 && setBuildingFilter(new Set())}
                   disabled={slotIds.length === 0}
                   className={
                     "rounded-xl border px-3 py-2 text-xs font-semibold transition " +
