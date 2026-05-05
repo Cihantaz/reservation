@@ -103,7 +103,7 @@ export default function Dashboard(props: { token: string; user: UserMe }) {
         ))}
       </div>
 
-      {tab === "rezervasyon" ? <MatrixView token={props.token} bootstrap={reservationBootstrap} /> : null}
+      {tab === "rezervasyon" ? <MatrixView token={props.token} userEmail={props.user.email} bootstrap={reservationBootstrap} /> : null}
       {tab === "benim" ? <MyReservations token={props.token} /> : null}
       {tab === "admin" ? <AdminPanel token={props.token} /> : null}
     </div>

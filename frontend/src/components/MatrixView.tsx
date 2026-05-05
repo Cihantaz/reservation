@@ -52,7 +52,7 @@ function matchesRoomSearch(room: Room, roomQuery: string): boolean {
     .some((value) => String(value).toLocaleLowerCase("tr-TR").includes(query));
 }
 
-export default function MatrixView(props: { token: string; bootstrap?: MatrixBootstrap }) {
+export default function MatrixView(props: { token: string; userEmail: string; bootstrap?: MatrixBootstrap }) {
   const bootstrapDay = props.bootstrap?.day ?? todayIso();
   const [day, setDay] = useState<string>(bootstrapDay);
   const [slots, setSlots] = useState<Slot[]>(() => props.bootstrap?.slots ?? []);
@@ -470,7 +470,7 @@ export default function MatrixView(props: { token: string; bootstrap?: MatrixBoo
         purpose,
         course: selectedCourse || undefined,
         rooms: selectedRooms,
-        userEmail: "" // TODO: Get from user context/API
+        userEmail: props.userEmail
       });
       setShowConfirmModal(true);
 

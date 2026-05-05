@@ -1,4 +1,4 @@
-import type React from "react";
+import React from "react";
 import type { PropsWithChildren } from "react";
 
 export function Card(props: PropsWithChildren<{ className?: string }>) {
